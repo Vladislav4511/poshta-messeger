@@ -432,8 +432,9 @@
       padding: 8px 2px;
     }
 
-    /* --- ЭКРАН ЛИЧНОГО ЧАТА (С ПОДЪЁМОМ НАД КЛАВИАТУРОЙ) --- */
+    /* --- ЭКРАН ЛИЧНОГО ЧАТА --- */
     #chat-room-view {
+      --kb-pad: 0px;
       position: fixed;
       top: 0;
       left: 0;
@@ -444,6 +445,8 @@
       flex-direction: column;
       z-index: 40;
       overflow: hidden;
+      padding-bottom: var(--kb-pad);
+      transition: padding-bottom 0.12s ease-out;
     }
 
     #chat-room-view.active {
@@ -557,6 +560,25 @@
       flex-shrink: 0;
     }
 
+    .copy-toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #38bdf8;
+      padding: 8px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      z-index: 80;
+      display: none;
+    }
+
+    .copy-toast.active {
+      display: block;
+    }
+
     /* --- МЕНЮ ПРИ ЗАЖАТИИ СООБЩЕНИЯ --- */
     .action-sheet-overlay {
       position: fixed;
@@ -607,6 +629,11 @@
     .sheet-btn.reply {
       background: #0284c7;
       color: #ffffff;
+    }
+
+    .sheet-btn.copy {
+      background: #1e3a5f;
+      color: #bae6fd;
     }
 
     .sheet-btn.delete {
@@ -982,6 +1009,7 @@
         maxlength="1000"
         autocomplete="off"
         onfocus="handleComposerFocus()"
+        onblur="handleComposerBlur()"
       />
       <button type="submit" class="send-btn" onpointerdown="handleSendPointerDown(event)">➤</button>
     </form>
@@ -992,10 +1020,13 @@
     <div class="action-sheet" onclick="event.stopPropagation()">
       <div class="action-sheet-title" id="action-sheet-preview">Что сделать с сообщением?</div>
       <button type="button" class="sheet-btn reply" onclick="triggerReplyMessage()">↩️ Ответить</button>
+      <button type="button" class="sheet-btn copy" onclick="triggerCopyMessage()">📋 Копировать сообщение</button>
       <button type="button" class="sheet-btn delete" onclick="triggerDeleteMessage()">🗑️ Удалить</button>
       <button type="button" class="sheet-btn cancel" onclick="closeMessageMenu()">Отмена</button>
     </div>
   </div>
+
+  <div class="copy-toast" id="copy-toast">Сообщение скопировано</div>
 
   <script>
     let authMode = 'register';
@@ -1007,6 +1038,7 @@
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
     let lastLocalSendTime = 0;
+    let baseInnerHeight = window.innerHeight;
 
     let customization = {
       msgSize: 'medium',
@@ -1029,20 +1061,30 @@
       </span>
     `;
 
-    // Подстраиваем высоту экрана чата под видимую область при открытии клавиатуры
-    function syncViewportHeight() {
+    // Надёжный подъём над клавиатурой для любых телефонов и браузеров
+    function syncKeyboardLayout() {
       const chatRoom = document.getElementById('chat-room-view');
+      if (!chatRoom) return;
+
+      const inputFocused = document.activeElement === document.getElementById('chat-message-input');
+      let kbHeight = 0;
+
       if (window.visualViewport) {
         const vv = window.visualViewport;
-        const height = Math.round(vv.height);
-        const offsetTop = Math.round(vv.offsetTop);
-        document.documentElement.style.height = `${height}px`;
-        document.body.style.height = `${height}px`;
-        if (chatRoom) {
-          chatRoom.style.height = `${height}px`;
-          chatRoom.style.top = `${offsetTop}px`;
-        }
+        const vvDiff = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+        const baseDiff = Math.max(0, Math.round(baseInnerHeight - vv.height - vv.offsetTop));
+        kbHeight = Math.max(vvDiff, baseDiff);
+      } else {
+        kbHeight = Math.max(0, Math.round(baseInnerHeight - window.innerHeight));
       }
+
+      // На части устройств окно не сжимается программно, но клавиатура открыта — даём безопасный подъём
+      if (kbHeight < 60 && inputFocused && chatRoom.classList.contains('active')) {
+        kbHeight = 260;
+      }
+
+      chatRoom.style.setProperty('--kb-pad', `${kbHeight}px`);
+
       const box = document.getElementById('chat-messages');
       if (box) {
         box.scrollTop = box.scrollHeight;
@@ -1050,18 +1092,31 @@
     }
 
     function handleComposerFocus() {
+      baseInnerHeight = Math.max(baseInnerHeight, window.innerHeight);
+      syncKeyboardLayout();
+      setTimeout(syncKeyboardLayout, 100);
+      setTimeout(syncKeyboardLayout, 300);
+    }
+
+    function handleComposerBlur() {
       setTimeout(() => {
-        syncViewportHeight();
-        const input = document.getElementById('chat-message-input');
-        if (input && input.scrollIntoView) {
-          input.scrollIntoView({ block: 'nearest' });
+        const chatRoom = document.getElementById('chat-room-view');
+        if (chatRoom && document.activeElement !== document.getElementById('chat-message-input')) {
+          chatRoom.style.setProperty('--kb-pad', '0px');
         }
       }, 120);
     }
 
+    window.addEventListener('resize', () => {
+      if (!document.activeElement || document.activeElement.tagName !== 'INPUT') {
+        baseInnerHeight = Math.max(baseInnerHeight, window.innerHeight);
+      }
+      syncKeyboardLayout();
+    });
+
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', syncViewportHeight);
-      window.visualViewport.addEventListener('scroll', syncViewportHeight);
+      window.visualViewport.addEventListener('resize', syncKeyboardLayout);
+      window.visualViewport.addEventListener('scroll', syncKeyboardLayout);
     }
 
     function loadCustomization() {
@@ -1140,6 +1195,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      baseInnerHeight = window.innerHeight;
       loadCustomization();
 
       const emojiRow = document.getElementById('msg-emoji-row');
@@ -1338,7 +1394,7 @@
       document.getElementById('peer-nick').textContent = peer.nickname;
       document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
       document.getElementById('chat-room-view').classList.add('active');
-      syncViewportHeight();
+      syncKeyboardLayout();
 
       currentMessagesCache = readLocalDialog(currentUser.id, peer.id);
       renderMessages(currentMessagesCache);
@@ -1351,11 +1407,15 @@
     function closeChatRoom() {
       activePeer = null;
       cancelReply();
+      const chatRoom = document.getElementById('chat-room-view');
+      if (chatRoom) {
+        chatRoom.style.setProperty('--kb-pad', '0px');
+        chatRoom.classList.remove('active');
+      }
       if (chatPollTimer) {
         clearInterval(chatPollTimer);
         chatPollTimer = null;
       }
-      document.getElementById('chat-room-view').classList.remove('active');
       if (!document.getElementById('search-view').classList.contains('active')) {
         loadChatsList();
       }
@@ -1425,7 +1485,6 @@
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerIdSnapshot) return;
 
-        // Не затираем мгновенно отправленные сообщения в первые 2.5 секунды
         if (Date.now() - lastLocalSendTime < 2500) {
           return;
         }
@@ -1447,7 +1506,6 @@
       submitInstantMessage();
     }
 
-    // Мгновенная отправка без задержки
     function submitInstantMessage() {
       if (!currentUser || !activePeer) return;
 
@@ -1509,6 +1567,47 @@
     function closeMessageMenu(event) {
       if (event && event.target !== event.currentTarget) return;
       document.getElementById('msg-action-sheet').classList.remove('active');
+    }
+
+    function showCopyToast(text) {
+      const toast = document.getElementById('copy-toast');
+      toast.textContent = text;
+      toast.classList.add('active');
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 1600);
+    }
+
+    function triggerCopyMessage() {
+      if (!selectedMessage) return;
+      const textToCopy = selectedMessage.text || '';
+      document.getElementById('msg-action-sheet').classList.remove('active');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy)
+          .then(() => showCopyToast('Сообщение скопировано'))
+          .catch(() => fallbackCopy(textToCopy));
+      } else {
+        fallbackCopy(textToCopy);
+      }
+      selectedMessage = null;
+    }
+
+    function fallbackCopy(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showCopyToast('Сообщение скопировано');
+      } catch (e) {
+        showCopyToast('Не удалось скопировать');
+      }
     }
 
     function triggerReplyMessage() {
