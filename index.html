@@ -230,6 +230,7 @@
       justify-content: center;
       align-items: center;
       font-size: 22px;
+      flex-shrink: 0;
     }
 
     .nickname-row {
@@ -249,22 +250,66 @@
       flex-shrink: 0;
     }
 
-    .settings-btn {
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
       width: 42px;
       height: 42px;
       border-radius: 12px;
       border: none;
       background: #334155;
       color: #f8fafc;
-      font-size: 20px;
+      font-size: 19px;
       display: flex;
       justify-content: center;
       align-items: center;
       cursor: pointer;
     }
 
-    .settings-btn:active {
+    .icon-btn:active, .icon-btn.active {
       background: #475569;
+    }
+
+    /* --- ПАНЕЛЬ ПОИСКА ПОЛЬЗОВАТЕЛЕЙ --- */
+    #search-panel {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 18px;
+      background: #172033;
+      border-bottom: 1px solid #334155;
+    }
+
+    #search-panel.active {
+      display: flex;
+    }
+
+    .search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .search-user-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #1e293b;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+
+    .search-empty {
+      font-size: 13px;
+      color: #94a3b8;
+      padding: 4px 2px;
     }
 
     .empty-workspace {
@@ -427,8 +472,24 @@
         </div>
       </div>
 
-      <button class="settings-btn" onclick="openSettings()" title="Настройки">⚙️</button>
+      <div class="top-actions">
+        <button class="icon-btn" id="search-toggle-btn" onclick="toggleSearch()" title="Поиск пользователей">🔍</button>
+        <button class="icon-btn" onclick="openSettings()" title="Настройки">⚙️</button>
+      </div>
     </header>
+
+    <!-- ПАНЕЛЬ ПОИСКА -->
+    <div id="search-panel">
+      <input
+        type="text"
+        id="search-input"
+        placeholder="Начни вводить имя (например, М)..."
+        oninput="runSearch()"
+      />
+      <div class="search-results" id="search-results">
+        <div class="search-empty">Введи первую букву или часть никнейма</div>
+      </div>
+    </div>
 
     <main class="empty-workspace">
       <span>🕊️</span>
@@ -467,10 +528,18 @@
     let currentUser = null;
     let selectedAvatar = '🕊️';
     const ALLOWED_AVATARS = [
-      '🕊️', '😎', '🐱', '🐶', '🦊', '🐼',
-      '🐨', '🦁', '🐸', '🐧', '🦄', '🐝',
-      '🐙', '🦖', '🤖', '👻', '🚀'
+      '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
+      '😎', '👻', '🔥', '⭐', '🎮', '💎',
+      '🍕', '⚡', '👑', '🎨', '🧩'
     ];
+
+    const CHECKMARK_SVG = `
+      <span class="verified-badge" title="Подтверждённый аккаунт">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="#38bdf8">
+          <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
+        </svg>
+      </span>
+    `;
 
     window.addEventListener('DOMContentLoaded', () => {
       setTimeout(async () => {
@@ -551,6 +620,60 @@
         currentUser.verified ? 'inline-flex' : 'none';
     }
 
+    function toggleSearch() {
+      const panel = document.getElementById('search-panel');
+      const btn = document.getElementById('search-toggle-btn');
+      const isOpen = panel.classList.toggle('active');
+      btn.classList.toggle('active', isOpen);
+
+      if (isOpen) {
+        const input = document.getElementById('search-input');
+        input.focus();
+        runSearch();
+      }
+    }
+
+    async function runSearch() {
+      const q = document.getElementById('search-input').value.trim();
+      const resultsEl = document.getElementById('search-results');
+
+      if (!q) {
+        resultsEl.innerHTML = '<div class="search-empty">Введи первую букву или часть никнейма</div>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        const users = data.users || [];
+
+        if (users.length === 0) {
+          resultsEl.innerHTML = '<div class="search-empty">Пользователи не найдены</div>';
+          return;
+        }
+
+        resultsEl.innerHTML = users.map(u => `
+          <div class="search-user-item">
+            <div class="avatar-circle">${u.avatar || '🕊️'}</div>
+            <div class="nickname-row">
+              <span>${escapeHtml(u.nickname)}</span>
+              ${u.verified ? CHECKMARK_SVG : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        resultsEl.innerHTML = '<div class="search-empty">Ошибка поиска</div>';
+      }
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     function openSettings() {
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
@@ -626,6 +749,8 @@
       localStorage.removeItem('pigeon_user_id');
       currentUser = null;
       closeSettings();
+      document.getElementById('search-panel').classList.remove('active');
+      document.getElementById('search-toggle-btn').classList.remove('active');
       document.getElementById('main-screen').classList.remove('active');
       document.getElementById('auth-nick').value = '';
       document.getElementById('auth-pass').value = '';
