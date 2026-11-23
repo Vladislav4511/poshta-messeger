@@ -1,12 +1,15 @@
 import os
 import json
 import time
+import requests
 from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
 DB_FILE = 'users.json'
 
-# 17 аватарок: разные объекты/символы + обязательно 🦜, 🐗, 🎩
+JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '').strip()
+JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
+
 ALLOWED_AVATARS = [
     '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
     '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -16,7 +19,27 @@ ALLOWED_AVATARS = [
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 
+def use_cloud_db() -> bool:
+    return bool(JSONBIN_BIN_ID and JSONBIN_API_KEY)
+
+
 def load_users():
+    if use_cloud_db():
+        url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
+        headers = {'X-Master-Key': JSONBIN_API_KEY}
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            record = resp.json().get('record', [])
+            if isinstance(record, list):
+                return record
+            if isinstance(record, dict) and isinstance(record.get('users'), list):
+                return record['users']
+            return []
+        except Exception as e:
+            print(f'Ошибка загрузки из JSONBin: {e}')
+            return []
+
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump([], f)
@@ -29,6 +52,19 @@ def load_users():
 
 
 def save_users(users):
+    if use_cloud_db():
+        url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}'
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSONBIN_API_KEY
+        }
+        try:
+            resp = requests.put(url, json=users, headers=headers, timeout=10)
+            resp.raise_for_status()
+            return
+        except Exception as e:
+            print(f'Ошибка сохранения в JSONBin: {e}')
+
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
 
