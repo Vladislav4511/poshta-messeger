@@ -16,8 +16,8 @@
     html, body {
       background: #0f172a;
       color: #f8fafc;
-      height: 100dvh;
-      width: 100vw;
+      height: 100%;
+      width: 100%;
       overflow: hidden;
       display: flex;
       justify-content: center;
@@ -205,7 +205,7 @@
     #main-screen {
       display: none;
       width: 100%;
-      height: 100dvh;
+      height: 100%;
       flex-direction: column;
       background: #0f172a;
     }
@@ -360,7 +360,7 @@
     #search-view {
       position: fixed;
       inset: 0;
-      height: 100dvh;
+      height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
@@ -438,15 +438,15 @@
       position: fixed;
       top: 0;
       left: 0;
-      width: 100vw;
-      height: 100dvh;
+      width: 100%;
+      height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
       z-index: 40;
       overflow: hidden;
       padding-bottom: var(--kb-pad);
-      transition: padding-bottom 0.12s ease-out;
+      transition: padding-bottom 0.1s ease-out;
     }
 
     #chat-room-view.active {
@@ -650,7 +650,7 @@
     #settings-screen {
       position: fixed;
       inset: 0;
-      height: 100dvh;
+      height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
@@ -1038,7 +1038,8 @@
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
     let lastLocalSendTime = 0;
-    let baseInnerHeight = window.innerHeight;
+    let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    let viewportShrankOnFocus = false;
 
     let customization = {
       msgSize: 'medium',
@@ -1061,29 +1062,36 @@
       </span>
     `;
 
-    // Надёжный подъём над клавиатурой для любых телефонов и браузеров
+    // Точный расчёт отступа клавиатуры без лишнего подъёма и без недоезда
     function syncKeyboardLayout() {
       const chatRoom = document.getElementById('chat-room-view');
-      if (!chatRoom) return;
+      const input = document.getElementById('chat-message-input');
+      if (!chatRoom || !chatRoom.classList.contains('active')) return;
 
-      const inputFocused = document.activeElement === document.getElementById('chat-message-input');
-      let kbHeight = 0;
+      const isFocused = document.activeElement === input;
+      let pad = 0;
 
       if (window.visualViewport) {
         const vv = window.visualViewport;
-        const vvDiff = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-        const baseDiff = Math.max(0, Math.round(baseInnerHeight - vv.height - vv.offsetTop));
-        kbHeight = Math.max(vvDiff, baseDiff);
+        const deltaFromBase = Math.max(0, Math.round(initialViewportHeight - vv.height - vv.offsetTop));
+        if (deltaFromBase > 70) {
+          viewportShrankOnFocus = true;
+          pad = deltaFromBase;
+        } else if (isFocused && !viewportShrankOnFocus) {
+          // Фоллбэк только если браузер вообще не сжал viewport при открытой клавиатуре
+          pad = 220;
+        }
       } else {
-        kbHeight = Math.max(0, Math.round(baseInnerHeight - window.innerHeight));
+        const deltaWin = Math.max(0, Math.round(initialViewportHeight - window.innerHeight));
+        if (deltaWin > 70) {
+          viewportShrankOnFocus = true;
+          pad = deltaWin;
+        } else if (isFocused && !viewportShrankOnFocus) {
+          pad = 220;
+        }
       }
 
-      // На части устройств окно не сжимается программно, но клавиатура открыта — даём безопасный подъём
-      if (kbHeight < 60 && inputFocused && chatRoom.classList.contains('active')) {
-        kbHeight = 260;
-      }
-
-      chatRoom.style.setProperty('--kb-pad', `${kbHeight}px`);
+      chatRoom.style.setProperty('--kb-pad', `${pad}px`);
 
       const box = document.getElementById('chat-messages');
       if (box) {
@@ -1092,24 +1100,32 @@
     }
 
     function handleComposerFocus() {
-      baseInnerHeight = Math.max(baseInnerHeight, window.innerHeight);
+      viewportShrankOnFocus = false;
       syncKeyboardLayout();
-      setTimeout(syncKeyboardLayout, 100);
-      setTimeout(syncKeyboardLayout, 300);
+      setTimeout(syncKeyboardLayout, 120);
+      setTimeout(syncKeyboardLayout, 320);
     }
 
     function handleComposerBlur() {
       setTimeout(() => {
-        const chatRoom = document.getElementById('chat-room-view');
-        if (chatRoom && document.activeElement !== document.getElementById('chat-message-input')) {
-          chatRoom.style.setProperty('--kb-pad', '0px');
+        if (document.activeElement !== document.getElementById('chat-message-input')) {
+          viewportShrankOnFocus = false;
+          const chatRoom = document.getElementById('chat-room-view');
+          if (chatRoom) {
+            chatRoom.style.setProperty('--kb-pad', '0px');
+          }
+          if (window.visualViewport) {
+            initialViewportHeight = Math.max(initialViewportHeight, window.visualViewport.height);
+          } else {
+            initialViewportHeight = Math.max(initialViewportHeight, window.innerHeight);
+          }
         }
-      }, 120);
+      }, 150);
     }
 
     window.addEventListener('resize', () => {
-      if (!document.activeElement || document.activeElement.tagName !== 'INPUT') {
-        baseInnerHeight = Math.max(baseInnerHeight, window.innerHeight);
+      if (document.activeElement !== document.getElementById('chat-message-input')) {
+        initialViewportHeight = Math.max(initialViewportHeight, window.innerHeight);
       }
       syncKeyboardLayout();
     });
@@ -1195,7 +1211,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-      baseInnerHeight = window.innerHeight;
+      initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       loadCustomization();
 
       const emojiRow = document.getElementById('msg-emoji-row');
@@ -1779,4 +1795,4 @@
     }
   </script>
 </body>
-</html>
+  </html>
