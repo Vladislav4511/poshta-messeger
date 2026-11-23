@@ -10,10 +10,11 @@ DB_FILE = 'users.json'
 JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '').strip()
 JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
 
+# 17 аватарок: заменено 🧩 на 🍐, сохранены 🦜, 🐗, 🎩
 ALLOWED_AVATARS = [
     '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
     '😎', '👻', '🔥', '⭐', '🎮', '💎',
-    '🍕', '⚡', '👑', '🎨', '🧩'
+    '🍕', '⚡', '👑', '🎨', '🍐'
 ]
 
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -23,35 +24,54 @@ def use_cloud_db() -> bool:
     return bool(JSONBIN_BIN_ID and JSONBIN_API_KEY)
 
 
-def load_users():
+def load_db():
+    default_db = {'users': [], 'messages': []}
+
     if use_cloud_db():
         url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
         headers = {'X-Master-Key': JSONBIN_API_KEY}
         try:
             resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
-            record = resp.json().get('record', [])
+            record = resp.json().get('record', {})
+
             if isinstance(record, list):
-                return record
-            if isinstance(record, dict) and isinstance(record.get('users'), list):
-                return record['users']
-            return []
+                return {'users': record, 'messages': []}
+            if isinstance(record, dict):
+                return {
+                    'users': record.get('users') if isinstance(record.get('users'), list) else [],
+                    'messages': record.get('messages') if isinstance(record.get('messages'), list) else []
+                }
+            return default_db
         except Exception as e:
             print(f'Ошибка загрузки из JSONBin: {e}')
-            return []
+            return default_db
 
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump([], f)
-        return []
+            json.dump(default_db, f, ensure_ascii=False, indent=2)
+        return default_db
     try:
         with open(DB_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, list):
+                return {'users': data, 'messages': []}
+            if isinstance(data, dict):
+                return {
+                    'users': data.get('users', []),
+                    'messages': data.get('messages', [])
+                }
+            return default_db
     except Exception:
-        return []
+        return default_db
 
 
-def save_users(users):
+def save_db(db_data):
+    payload = {
+        'users': db_data.get('users', []),
+        'messages': db_data.get('messages', [])
+    }
+
     if use_cloud_db():
         url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}'
         headers = {
@@ -59,14 +79,14 @@ def save_users(users):
             'X-Master-Key': JSONBIN_API_KEY
         }
         try:
-            resp = requests.put(url, json=users, headers=headers, timeout=10)
+            resp = requests.put(url, json=payload, headers=headers, timeout=10)
             resp.raise_for_status()
             return
         except Exception as e:
             print(f'Ошибка сохранения в JSONBin: {e}')
 
     with open(DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
 def has_blue_checkmark(nickname: str) -> bool:
@@ -97,7 +117,9 @@ def register():
     if len(password) < 4:
         return jsonify({'error': 'Пароль должен быть минимум 4 символа'}), 400
 
-    users = load_users()
+    db = load_db()
+    users = db['users']
+
     if any(u['nickname'].lower() == nickname.lower() for u in users):
         return jsonify({'error': 'Этот никнейм уже занят!'}), 400
 
@@ -112,7 +134,7 @@ def register():
     }
 
     users.append(new_user)
-    save_users(users)
+    save_db(db)
 
     return jsonify({'user': safe_user(new_user), 'avatars': ALLOWED_AVATARS})
 
@@ -126,9 +148,9 @@ def login():
     if not nickname or not password:
         return jsonify({'error': 'Введи никнейм и пароль!'}), 400
 
-    users = load_users()
+    db = load_db()
     user = next(
-        (u for u in users if u['nickname'].lower() == nickname.lower() and u['password'] == password),
+        (u for u in db['users'] if u['nickname'].lower() == nickname.lower() and u['password'] == password),
         None
     )
 
@@ -144,8 +166,8 @@ def me():
     data = request.get_json() or {}
     user_id = data.get('id')
 
-    users = load_users()
-    user = next((u for u in users if u['id'] == user_id), None)
+    db = load_db()
+    user = next((u for u in db['users'] if u['id'] == user_id), None)
 
     if not user:
         return jsonify({'error': 'Аккаунт не найден'}), 404
@@ -160,7 +182,7 @@ def search_users():
     if not q:
         return jsonify({'users': []})
 
-    users = load_users()
+    db = load_db()
     matched = [
         {
             'id': u['id'],
@@ -168,7 +190,7 @@ def search_users():
             'avatar': u.get('avatar', '🕊️'),
             'verified': has_blue_checkmark(u['nickname'])
         }
-        for u in users
+        for u in db['users']
         if u['nickname'].lower().startswith(q)
     ]
 
@@ -182,7 +204,8 @@ def update_profile():
     new_nickname = (data.get('newNickname') or '').strip()
     new_avatar = data.get('newAvatar')
 
-    users = load_users()
+    db = load_db()
+    users = db['users']
     user_index = next((i for i, u in enumerate(users) if u['id'] == user_id), -1)
 
     if user_index == -1:
@@ -220,9 +243,103 @@ def update_profile():
         user['lastNickChange'] = now_ms
 
     users[user_index] = user
-    save_users(users)
+    save_db(db)
 
     return jsonify({'user': safe_user(user)})
+
+
+@app.route('/api/chats', methods=['GET'])
+def get_chats():
+    user_id = (request.args.get('user_id') or '').strip()
+    if not user_id:
+        return jsonify({'chats': []})
+
+    db = load_db()
+    users_by_id = {u['id']: u for u in db['users']}
+    partner_ids = set()
+
+    for m in db['messages']:
+        if m.get('sender_id') == user_id and m.get('receiver_id'):
+            partner_ids.add(m['receiver_id'])
+        elif m.get('receiver_id') == user_id and m.get('sender_id'):
+            partner_ids.add(m['sender_id'])
+
+    chats = []
+    for pid in partner_ids:
+        partner = users_by_id.get(pid)
+        if not partner:
+            continue
+
+        dialog = [
+            m for m in db['messages']
+            if (m.get('sender_id') == user_id and m.get('receiver_id') == pid)
+            or (m.get('sender_id') == pid and m.get('receiver_id') == user_id)
+        ]
+        dialog.sort(key=lambda x: x.get('timestamp', 0))
+        last_msg = dialog[-1] if dialog else None
+
+        chats.append({
+            'id': partner['id'],
+            'nickname': partner['nickname'],
+            'avatar': partner.get('avatar', '🕊️'),
+            'verified': has_blue_checkmark(partner['nickname']),
+            'lastMessage': last_msg.get('text', '') if last_msg else '',
+            'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else 0
+        })
+
+    chats.sort(key=lambda c: c['lastTimestamp'], reverse=True)
+    return jsonify({'chats': chats})
+
+
+@app.route('/api/messages', methods=['GET'])
+def get_messages():
+    user_id = (request.args.get('user_id') or '').strip()
+    peer_id = (request.args.get('peer_id') or '').strip()
+
+    if not user_id or not peer_id:
+        return jsonify({'messages': []})
+
+    db = load_db()
+    dialog = [
+        m for m in db['messages']
+        if (m.get('sender_id') == user_id and m.get('receiver_id') == peer_id)
+        or (m.get('sender_id') == peer_id and m.get('receiver_id') == user_id)
+    ]
+    dialog.sort(key=lambda x: x.get('timestamp', 0))
+    return jsonify({'messages': dialog})
+
+
+@app.route('/api/messages/send', methods=['POST'])
+def send_message():
+    data = request.get_json() or {}
+    sender_id = (data.get('sender_id') or '').strip()
+    receiver_id = (data.get('receiver_id') or '').strip()
+    text = (data.get('text') or '').strip()
+
+    if not sender_id or not receiver_id or not text:
+        return jsonify({'error': 'Пустое сообщение'}), 400
+
+    if len(text) > 1000:
+        return jsonify({'error': 'Сообщение слишком длинное'}), 400
+
+    db = load_db()
+    users_by_id = {u['id']: u for u in db['users']}
+    if sender_id not in users_by_id or receiver_id not in users_by_id:
+        return jsonify({'error': 'Пользователь не найден'}), 404
+
+    now_ms = int(time.time() * 1000)
+    msg = {
+        'id': f'{now_ms}_{len(db["messages"]) + 1}',
+        'sender_id': sender_id,
+        'receiver_id': receiver_id,
+        'text': text,
+        'timestamp': now_ms
+    }
+
+    db['messages'].append(msg)
+    save_db(db)
+
+    return jsonify({'message': msg})
 
 
 if __name__ == '__main__':
