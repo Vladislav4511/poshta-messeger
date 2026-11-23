@@ -3,7 +3,7 @@ import json
 import time
 from flask import Flask, request, jsonify, send_from_directory
 
-app = Flask(__name__, static_folder='public', static_url_path='')
+app = Flask(__name__)
 DB_FILE = 'users.json'
 
 ALLOWED_AVATARS = [
@@ -42,7 +42,7 @@ def safe_user(user: dict) -> dict:
 
 @app.route('/')
 def index():
-    return send_from_directory('public', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 
 @app.route('/api/register', methods=['POST'])
