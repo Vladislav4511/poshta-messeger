@@ -6,10 +6,11 @@ from flask import Flask, request, jsonify, send_from_directory
 app = Flask(__name__)
 DB_FILE = 'users.json'
 
+# 17 аватарок: разные объекты/символы + обязательно 🦜, 🐗, 🎩
 ALLOWED_AVATARS = [
-    '🕊️', '😎', '🐱', '🐶', '🦊', '🐼',
-    '🐨', '🦁', '🐸', '🐧', '🦄', '🐝',
-    '🐙', '🦖', '🤖', '👻', '🚀'
+    '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
+    '😎', '👻', '🔥', '⭐', '🎮', '💎',
+    '🍕', '⚡', '👑', '🎨', '🧩'
 ]
 
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -115,6 +116,27 @@ def me():
 
     user['verified'] = has_blue_checkmark(user['nickname'])
     return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
+
+
+@app.route('/api/users/search', methods=['GET'])
+def search_users():
+    q = (request.args.get('q') or '').strip().lower()
+    if not q:
+        return jsonify({'users': []})
+
+    users = load_users()
+    matched = [
+        {
+            'id': u['id'],
+            'nickname': u['nickname'],
+            'avatar': u.get('avatar', '🕊️'),
+            'verified': has_blue_checkmark(u['nickname'])
+        }
+        for u in users
+        if u['nickname'].lower().startswith(q)
+    ]
+
+    return jsonify({'users': matched})
 
 
 @app.route('/api/update-profile', methods=['POST'])
