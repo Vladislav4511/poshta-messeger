@@ -213,6 +213,7 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid #334155;
+      flex-shrink: 0;
     }
 
     .user-badge {
@@ -271,45 +272,51 @@
     }
 
     .icon-btn:active, .icon-btn.active {
-      background: #475569;
+      background: #38bdf8;
+      color: #0f172a;
     }
 
-    /* --- ПАНЕЛЬ ПОИСКА ПОЛЬЗОВАТЕЛЕЙ --- */
-    #search-panel {
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-      padding: 14px 18px;
-      background: #172033;
-      border-bottom: 1px solid #334155;
-    }
-
-    #search-panel.active {
-      display: flex;
-    }
-
-    .search-results {
+    /* --- ВИД СПИСКА ЧАТОВ --- */
+    #chats-view {
+      flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      max-height: 240px;
       overflow-y: auto;
+      padding: 12px 16px;
+      gap: 8px;
     }
 
-    .search-user-item {
+    #chats-view.hidden {
+      display: none;
+    }
+
+    .chat-list-item {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
+      gap: 12px;
+      padding: 12px;
       background: #1e293b;
-      border-radius: 12px;
+      border-radius: 14px;
       border: 1px solid #334155;
+      cursor: pointer;
     }
 
-    .search-empty {
+    .chat-list-item:active {
+      background: #273549;
+    }
+
+    .chat-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chat-last-msg {
       font-size: 13px;
       color: #94a3b8;
-      padding: 4px 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
     }
 
     .empty-workspace {
@@ -327,6 +334,145 @@
       font-size: 48px;
       margin-bottom: 12px;
       opacity: 0.7;
+    }
+
+    /* --- ВИД ПОИСКА ПОЛЬЗОВАТЕЛЕЙ --- */
+    #search-view {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 16px;
+      background: #0f172a;
+      overflow-y: auto;
+    }
+
+    #search-view.active {
+      display: flex;
+    }
+
+    .search-top-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .back-btn {
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: none;
+      background: #334155;
+      color: #f8fafc;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-user-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      background: #1e293b;
+      border-radius: 14px;
+      border: 1px solid #334155;
+      cursor: pointer;
+    }
+
+    .search-user-item:active {
+      background: #273549;
+    }
+
+    .search-user-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .open-chat-tag {
+      font-size: 12px;
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .search-empty {
+      font-size: 13px;
+      color: #94a3b8;
+      padding: 8px 2px;
+    }
+
+    /* --- ЭКРАН ДИАЛОГА --- */
+    #chat-room-view {
+      position: fixed;
+      inset: 0;
+      background: #0f172a;
+      display: none;
+      flex-direction: column;
+      z-index: 40;
+    }
+
+    #chat-room-view.active {
+      display: flex;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg-bubble {
+      max-width: 78%;
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 15px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .msg-mine {
+      align-self: flex-end;
+      background: #0284c7;
+      color: #ffffff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg-theirs {
+      align-self: flex-start;
+      background: #1e293b;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-bottom-left-radius: 4px;
+    }
+
+    .chat-input-bar {
+      padding: 10px 14px;
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .send-btn {
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: none;
+      background: #38bdf8;
+      color: #0f172a;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
     }
 
     /* --- МОДАЛЬНОЕ ОКНО НАСТРОЕК --- */
@@ -473,28 +619,56 @@
       </div>
 
       <div class="top-actions">
-        <button class="icon-btn" id="search-toggle-btn" onclick="toggleSearch()" title="Поиск пользователей">🔍</button>
+        <button class="icon-btn" id="search-toggle-btn" onclick="openSearchScreen()" title="Поиск пользователей">🔍</button>
         <button class="icon-btn" onclick="openSettings()" title="Настройки">⚙️</button>
       </div>
     </header>
 
-    <!-- ПАНЕЛЬ ПОИСКА -->
-    <div id="search-panel">
-      <input
-        type="text"
-        id="search-input"
-        placeholder="Начни вводить имя (например, М)..."
-        oninput="runSearch()"
-      />
-      <div class="search-results" id="search-results">
-        <div class="search-empty">Введи первую букву или часть никнейма</div>
+    <!-- ЭКРАН ПОИСКА (ОТДЕЛЬНЫЙ РЕЖИМ) -->
+    <section id="search-view">
+      <div class="search-top-row">
+        <button class="back-btn" onclick="closeSearchScreen()">← Чаты</button>
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Введи букву (например, М)..."
+          oninput="runSearch()"
+        />
       </div>
-    </div>
+      <div class="search-results" id="search-results">
+        <div class="search-empty">Начни вводить имя пользователя</div>
+      </div>
+    </section>
 
-    <main class="empty-workspace">
-      <span>🕊️</span>
-      <p>Добро пожаловать в Голубиную почту!<br>Чаты скоро появятся.</p>
-    </main>
+    <!-- СПИСОК ЧАТОВ -->
+    <section id="chats-view">
+      <div id="chats-list"></div>
+      <div class="empty-workspace" id="empty-chats-placeholder">
+        <span>🕊️</span>
+        <p>Пока чатов нет.<br>Нажми на лупу сверху, чтобы найти пользователя и написать ему.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- ЭКРАН ЛИЧНОГО ЧАТА -->
+  <div id="chat-room-view">
+    <header class="top-bar">
+      <div class="user-badge">
+        <button class="back-btn" onclick="closeChatRoom()">←</button>
+        <div class="avatar-circle" id="peer-avatar">🕊️</div>
+        <div class="nickname-row">
+          <span id="peer-nick">Пользователь</span>
+          <span id="peer-verified"></span>
+        </div>
+      </div>
+    </header>
+
+    <div class="chat-messages" id="chat-messages"></div>
+
+    <form class="chat-input-bar" onsubmit="sendChatMessage(event)">
+      <input type="text" id="chat-message-input" placeholder="Написать сообщение..." maxlength="1000" autocomplete="off" />
+      <button type="submit" class="send-btn">➤</button>
+    </form>
   </div>
 
   <!-- НАСТРОЙКИ -->
@@ -526,11 +700,14 @@
   <script>
     let authMode = 'register';
     let currentUser = null;
+    let activePeer = null;
+    let chatPollTimer = null;
     let selectedAvatar = '🕊️';
+
     const ALLOWED_AVATARS = [
       '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
       '😎', '👻', '🔥', '⭐', '🎮', '💎',
-      '🍕', '⚡', '👑', '🎨', '🧩'
+      '🍕', '⚡', '👑', '🎨', '🍐'
     ];
 
     const CHECKMARK_SVG = `
@@ -611,6 +788,8 @@
       document.getElementById('main-screen').classList.add('active');
 
       updateHeaderUI();
+      closeSearchScreen();
+      loadChatsList();
     }
 
     function updateHeaderUI() {
@@ -620,16 +799,25 @@
         currentUser.verified ? 'inline-flex' : 'none';
     }
 
-    function toggleSearch() {
-      const panel = document.getElementById('search-panel');
-      const btn = document.getElementById('search-toggle-btn');
-      const isOpen = panel.classList.toggle('active');
-      btn.classList.toggle('active', isOpen);
+    /* --- ПЕРЕКЛЮЧЕНИЕ В ПОИСК И ОБРАТНО В ЧАТЫ --- */
+    function openSearchScreen() {
+      document.getElementById('chats-view').classList.add('hidden');
+      document.getElementById('search-view').classList.add('active');
+      document.getElementById('search-toggle-btn').classList.add('active');
 
-      if (isOpen) {
-        const input = document.getElementById('search-input');
-        input.focus();
-        runSearch();
+      const input = document.getElementById('search-input');
+      input.value = '';
+      document.getElementById('search-results').innerHTML =
+        '<div class="search-empty">Начни вводить имя пользователя</div>';
+      input.focus();
+    }
+
+    function closeSearchScreen() {
+      document.getElementById('search-view').classList.remove('active');
+      document.getElementById('chats-view').classList.remove('hidden');
+      document.getElementById('search-toggle-btn').classList.remove('active');
+      if (currentUser) {
+        loadChatsList();
       }
     }
 
@@ -638,7 +826,7 @@
       const resultsEl = document.getElementById('search-results');
 
       if (!q) {
-        resultsEl.innerHTML = '<div class="search-empty">Введи первую букву или часть никнейма</div>';
+        resultsEl.innerHTML = '<div class="search-empty">Начни вводить имя пользователя</div>';
         return;
       }
 
@@ -653,12 +841,15 @@
         }
 
         resultsEl.innerHTML = users.map(u => `
-          <div class="search-user-item">
-            <div class="avatar-circle">${u.avatar || '🕊️'}</div>
-            <div class="nickname-row">
-              <span>${escapeHtml(u.nickname)}</span>
-              ${u.verified ? CHECKMARK_SVG : ''}
+          <div class="search-user-item" onclick='openChatWithUser(${JSON.stringify(u)})'>
+            <div class="search-user-left">
+              <div class="avatar-circle">${u.avatar || '🕊️'}</div>
+              <div class="nickname-row">
+                <span>${escapeHtml(u.nickname)}</span>
+                ${u.verified ? CHECKMARK_SVG : ''}
+              </div>
             </div>
+            <span class="open-chat-tag">Чат →</span>
           </div>
         `).join('');
       } catch (e) {
@@ -666,14 +857,119 @@
       }
     }
 
+    /* --- СПИСОК ЧАТОВ И ЛИЧНЫЙ ДИАЛОГ --- */
+    async function loadChatsList() {
+      if (!currentUser) return;
+      const listEl = document.getElementById('chats-list');
+      const emptyEl = document.getElementById('empty-chats-placeholder');
+
+      try {
+        const res = await fetch(`/api/chats?user_id=${encodeURIComponent(currentUser.id)}`);
+        const data = await res.json();
+        const chats = data.chats || [];
+
+        if (chats.length === 0) {
+          listEl.innerHTML = '';
+          emptyEl.style.display = 'flex';
+          return;
+        }
+
+        emptyEl.style.display = 'none';
+        listEl.innerHTML = chats.map(c => `
+          <div class="chat-list-item" onclick='openChatWithUser(${JSON.stringify(c)})'>
+            <div class="avatar-circle">${c.avatar || '🕊️'}</div>
+            <div class="chat-meta">
+              <div class="nickname-row">
+                <span>${escapeHtml(c.nickname)}</span>
+                ${c.verified ? CHECKMARK_SVG : ''}
+              </div>
+              <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {}
+    }
+
+    function openChatWithUser(peer) {
+      activePeer = peer;
+      document.getElementById('peer-avatar').textContent = peer.avatar || '🕊️';
+      document.getElementById('peer-nick').textContent = peer.nickname;
+      document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
+      document.getElementById('chat-room-view').classList.add('active');
+      document.getElementById('chat-message-input').focus();
+
+      fetchMessages();
+      if (chatPollTimer) clearInterval(chatPollTimer);
+      chatPollTimer = setInterval(fetchMessages, 2500);
+    }
+
+    function closeChatRoom() {
+      activePeer = null;
+      if (chatPollTimer) {
+        clearInterval(chatPollTimer);
+        chatPollTimer = null;
+      }
+      document.getElementById('chat-room-view').classList.remove('active');
+      loadChatsList();
+    }
+
+    async function fetchMessages() {
+      if (!currentUser || !activePeer) return;
+      try {
+        const res = await fetch(
+          `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(activePeer.id)}`
+        );
+        const data = await res.json();
+        const messages = data.messages || [];
+        const box = document.getElementById('chat-messages');
+
+        if (messages.length === 0) {
+          box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
+          return;
+        }
+
+        box.innerHTML = messages.map(m => {
+          const isMine = m.sender_id === currentUser.id;
+          return `<div class="msg-bubble ${isMine ? 'msg-mine' : 'msg-theirs'}">${escapeHtml(m.text)}</div>`;
+        }).join('');
+        box.scrollTop = box.scrollHeight;
+      } catch (e) {}
+    }
+
+    async function sendChatMessage(event) {
+      event.preventDefault();
+      if (!currentUser || !activePeer) return;
+
+      const input = document.getElementById('chat-message-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      try {
+        const res = await fetch('/api/messages/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender_id: currentUser.id,
+            receiver_id: activePeer.id,
+            text
+          })
+        });
+        if (res.ok) {
+          await fetchMessages();
+        }
+      } catch (e) {}
+    }
+
     function escapeHtml(str) {
-      return str
+      return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     }
 
+    /* --- НАСТРОЙКИ --- */
     function openSettings() {
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
@@ -748,9 +1044,9 @@
     function logout() {
       localStorage.removeItem('pigeon_user_id');
       currentUser = null;
+      closeChatRoom();
       closeSettings();
-      document.getElementById('search-panel').classList.remove('active');
-      document.getElementById('search-toggle-btn').classList.remove('active');
+      closeSearchScreen();
       document.getElementById('main-screen').classList.remove('active');
       document.getElementById('auth-nick').value = '';
       document.getElementById('auth-pass').value = '';
