@@ -10,7 +10,6 @@ DB_FILE = 'users.json'
 JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '').strip()
 JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
 
-# 17 аватарок: заменено 🧩 на 🍐, сохранены 🦜, 🐗, 🎩
 ALLOWED_AVATARS = [
     '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
     '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -315,6 +314,7 @@ def send_message():
     sender_id = (data.get('sender_id') or '').strip()
     receiver_id = (data.get('receiver_id') or '').strip()
     text = (data.get('text') or '').strip()
+    reply_to = data.get('reply_to')
 
     if not sender_id or not receiver_id or not text:
         return jsonify({'error': 'Пустое сообщение'}), 400
@@ -328,18 +328,50 @@ def send_message():
         return jsonify({'error': 'Пользователь не найден'}), 404
 
     now_ms = int(time.time() * 1000)
+    clean_reply = None
+    if isinstance(reply_to, dict) and reply_to.get('text'):
+        clean_reply = {
+            'id': str(reply_to.get('id', '')),
+            'sender_nick': str(reply_to.get('sender_nick', ''))[:30],
+            'text': str(reply_to.get('text', ''))[:120]
+        }
+
     msg = {
         'id': f'{now_ms}_{len(db["messages"]) + 1}',
         'sender_id': sender_id,
         'receiver_id': receiver_id,
         'text': text,
-        'timestamp': now_ms
+        'timestamp': now_ms,
+        'reply_to': clean_reply
     }
 
     db['messages'].append(msg)
     save_db(db)
 
     return jsonify({'message': msg})
+
+
+@app.route('/api/messages/delete', methods=['POST'])
+def delete_message():
+    data = request.get_json() or {}
+    msg_id = (data.get('message_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
+
+    if not msg_id:
+        return jsonify({'error': 'Не указан ID сообщения'}), 400
+
+    db = load_db()
+    before_count = len(db['messages'])
+    db['messages'] = [
+        m for m in db['messages']
+        if not (m.get('id') == msg_id and (not user_id or m.get('sender_id') == user_id or m.get('receiver_id') == user_id))
+    ]
+
+    if len(db['messages']) == before_count:
+        return jsonify({'error': 'Сообщение не найдено'}), 404
+
+    save_db(db)
+    return jsonify({'ok': True, 'deleted_id': msg_id})
 
 
 if __name__ == '__main__':
