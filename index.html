@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Голубиная почта</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      height: 100dvh;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* --- ЗАСТАВКА --- */
+    #splash-screen {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      transition: opacity 0.6s ease, visibility 0.6s ease;
+    }
+
+    #splash-screen.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .pigeon-container {
+      width: 140px;
+      height: 140px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      animation: floatPigeon 2s ease-in-out infinite;
+    }
+
+    @keyframes floatPigeon {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .wing-back {
+      transform-origin: 58px 58px;
+      animation: flapBack 0.45s ease-in-out infinite alternate;
+    }
+
+    .wing-front {
+      transform-origin: 55px 62px;
+      animation: flapFront 0.45s ease-in-out infinite alternate;
+    }
+
+    @keyframes flapFront {
+      0% { transform: rotate(-18deg) scaleY(1); }
+      100% { transform: rotate(28deg) scaleY(0.85); }
+    }
+
+    @keyframes flapBack {
+      0% { transform: rotate(15deg) scaleY(0.9); }
+      100% { transform: rotate(-25deg) scaleY(1); }
+    }
+
+    .splash-title {
+      margin-top: 20px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #ffffff;
+      text-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);
+    }
+
+    /* --- ЭКРАН ВХОДА / РЕГИСТРАЦИИ --- */
+    #auth-screen {
+      width: 100%;
+      max-width: 380px;
+      padding: 24px;
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      background: #1e293b;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      margin: 16px;
+    }
+
+    #auth-screen.active {
+      display: flex;
+    }
+
+    .auth-header {
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .auth-header h2 {
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+
+    .auth-header p {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    .tabs {
+      display: flex;
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 4px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-weight: 600;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .tab-btn.active {
+      background: #38bdf8;
+      color: #0f172a;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .input-group label {
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #fff;
+      font-size: 15px;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #38bdf8;
+    }
+
+    .primary-btn {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 12px;
+      background: #38bdf8;
+      color: #0f172a;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: transform 0.1s;
+    }
+
+    .primary-btn:active {
+      transform: scale(0.98);
+    }
+
+    .error-msg {
+      color: #f87171;
+      font-size: 13px;
+      text-align: center;
+      min-height: 18px;
+    }
+
+    /* --- ГЛАВНЫЙ ЭКРАН --- */
+    #main-screen {
+      display: none;
+      width: 100%;
+      height: 100%;
+      flex-direction: column;
+      background: #0f172a;
+    }
+
+    #main-screen.active {
+      display: flex;
+    }
+
+    .top-bar {
+      height: 64px;
+      padding: 0 18px;
+      background: #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #334155;
+    }
+
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar-circle {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #334155;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 22px;
+    }
+
+    .nickname-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    .verified-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .settings-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      border: none;
+      background: #334155;
+      color: #f8fafc;
+      font-size: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .settings-btn:active {
+      background: #475569;
+    }
+
+    .empty-workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #64748b;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .empty-workspace span {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.7;
+    }
+
+    /* --- МОДАЛЬНОЕ ОКНО НАСТРОЕК --- */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      z-index: 50;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 400px;
+      background: #1e293b;
+      border-radius: 20px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: 90dvh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    .avatar-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .avatar-option {
+      aspect-ratio: 1;
+      border-radius: 12px;
+      background: #0f172a;
+      border: 2px solid transparent;
+      font-size: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .avatar-option.selected {
+      border-color: #38bdf8;
+      background: #1e3a5f;
+    }
+
+    .hint-text {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .logout-btn {
+      background: #334155;
+      color: #f87171;
+      border: none;
+      padding: 11px;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ЗАСТАВКА (4 СЕКУНДЫ) -->
+  <div id="splash-screen">
+    <div class="pigeon-container">
+      <svg viewBox="0 0 120 120" width="130" height="130">
+        <path class="wing-back" d="M58 58 C42 25, 18 28, 25 52 C32 62, 48 62, 58 58 Z" fill="#cbd5e1" />
+        <path d="M26 74 L8 86 L16 68 Z" fill="#e2e8f0" />
+        <path d="M24 72 C36 88, 74 88, 84 66 C90 54, 88 38, 78 34 C70 31, 64 38, 62 46 C52 52, 34 58, 24 72 Z" fill="#ffffff" />
+        <path d="M86 40 L97 44 L86 47 Z" fill="#f59e0b" />
+        <circle cx="79" cy="40" r="2.5" fill="#0f172a" />
+        <path class="wing-front" d="M55 62 C36 22, 10 32, 22 58 C30 70, 46 68, 55 62 Z" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" />
+      </svg>
+    </div>
+    <div class="splash-title">Голубиная почта</div>
+  </div>
+
+  <!-- РЕГИСТРАЦИЯ И ВХОД -->
+  <div id="auth-screen">
+    <div class="auth-header">
+      <h2>🕊️ Голубиная почта</h2>
+      <p>Создай аккаунт или войди в свой профиль</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-register" onclick="switchMode('register')">Регистрация</button>
+      <button class="tab-btn" id="tab-login" onclick="switchMode('login')">Вход</button>
+    </div>
+
+    <div class="input-group">
+      <label>Никнейм</label>
+      <input type="text" id="auth-nick" placeholder="Придумай никнейм..." maxlength="20" />
+    </div>
+
+    <div class="input-group">
+      <label>Пароль</label>
+      <input type="password" id="auth-pass" placeholder="Введи пароль..." />
+    </div>
+
+    <div class="error-msg" id="auth-error"></div>
+
+    <button class="primary-btn" id="auth-submit-btn" onclick="submitAuth()">Зарегистрироваться</button>
+  </div>
+
+  <!-- ГЛАВНЫЙ ЭКРАН -->
+  <div id="main-screen">
+    <header class="top-bar">
+      <div class="user-badge">
+        <div class="avatar-circle" id="header-avatar">🕊️</div>
+        <div class="nickname-row">
+          <span id="header-nick">Пользователь</span>
+          <span id="header-verified" class="verified-badge" style="display: none;" title="Подтверждённый аккаунт">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="#38bdf8">
+              <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
+            </svg>
+          </span>
+        </div>
+      </div>
+
+      <button class="settings-btn" onclick="openSettings()" title="Настройки">⚙️</button>
+    </header>
+
+    <main class="empty-workspace">
+      <span>🕊️</span>
+      <p>Добро пожаловать в Голубиную почту!<br>Чаты скоро появятся.</p>
+    </main>
+  </div>
+
+  <!-- НАСТРОЙКИ -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Настройки профиля</h3>
+        <button class="close-btn" onclick="closeSettings()">&times;</button>
+      </div>
+
+      <div class="input-group">
+        <label>Выбери аватарку (17 эмодзи)</label>
+        <div class="avatar-grid" id="avatar-grid"></div>
+      </div>
+
+      <div class="input-group">
+        <label>Никнейм</label>
+        <input type="text" id="settings-nick" maxlength="20" />
+        <span class="hint-text" id="nick-timer-hint">Никнейм можно менять 1 раз в неделю.</span>
+      </div>
+
+      <div class="error-msg" id="settings-error"></div>
+
+      <button class="primary-btn" onclick="saveSettings()">Сохранить изменения</button>
+      <button class="logout-btn" onclick="logout()">Выйти из аккаунта</button>
+    </div>
+  </div>
+
+  <script>
+    let authMode = 'register';
+    let currentUser = null;
+    let selectedAvatar = '🕊️';
+    const ALLOWED_AVATARS = [
+      '🕊️', '😎', '🐱', '🐶', '🦊', '🐼',
+      '🐨', '🦁', '🐸', '🐧', '🦄', '🐝',
+      '🐙', '🦖', '🤖', '👻', '🚀'
+    ];
+
+    window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(async () => {
+        const splash = document.getElementById('splash-screen');
+        splash.classList.add('hidden');
+
+        const savedId = localStorage.getItem('pigeon_user_id');
+        if (savedId) {
+          try {
+            const res = await fetch('/api/me', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: savedId })
+            });
+            const data = await res.json();
+            if (res.ok && data.user) {
+              enterApp(data.user);
+              return;
+            }
+          } catch (e) {}
+        }
+
+        document.getElementById('auth-screen').classList.add('active');
+      }, 4000);
+    });
+
+    function switchMode(mode) {
+      authMode = mode;
+      document.getElementById('auth-error').textContent = '';
+      document.getElementById('tab-register').classList.toggle('active', mode === 'register');
+      document.getElementById('tab-login').classList.toggle('active', mode === 'login');
+      document.getElementById('auth-submit-btn').textContent =
+        mode === 'register' ? 'Зарегистрироваться' : 'Войти';
+    }
+
+    async function submitAuth() {
+      const nickname = document.getElementById('auth-nick').value;
+      const password = document.getElementById('auth-pass').value;
+      const errorEl = document.getElementById('auth-error');
+      errorEl.textContent = '';
+
+      const endpoint = authMode === 'register' ? '/api/register' : '/api/login';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nickname, password })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errorEl.textContent = data.error || 'Ошибка';
+          return;
+        }
+
+        localStorage.setItem('pigeon_user_id', data.user.id);
+        enterApp(data.user);
+      } catch (err) {
+        errorEl.textContent = 'Нет связи с сервером';
+      }
+    }
+
+    function enterApp(user) {
+      currentUser = user;
+      selectedAvatar = user.avatar;
+
+      document.getElementById('auth-screen').classList.remove('active');
+      document.getElementById('main-screen').classList.add('active');
+
+      updateHeaderUI();
+    }
+
+    function updateHeaderUI() {
+      document.getElementById('header-avatar').textContent = currentUser.avatar;
+      document.getElementById('header-nick').textContent = currentUser.nickname;
+      document.getElementById('header-verified').style.display =
+        currentUser.verified ? 'inline-flex' : 'none';
+    }
+
+    function openSettings() {
+      document.getElementById('settings-error').textContent = '';
+      document.getElementById('settings-nick').value = currentUser.nickname;
+      selectedAvatar = currentUser.avatar;
+
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      const passed = Date.now() - (currentUser.lastNickChange || 0);
+      const nickInput = document.getElementById('settings-nick');
+      const hint = document.getElementById('nick-timer-hint');
+
+      if (passed < weekMs) {
+        const daysLeft = Math.ceil((weekMs - passed) / (1000 * 60 * 60 * 24));
+        nickInput.disabled = true;
+        hint.textContent = `Смена никнейма доступна через ${daysLeft} дн.`;
+      } else {
+        nickInput.disabled = false;
+        hint.textContent = 'Никнейм можно менять 1 раз в неделю.';
+      }
+
+      const grid = document.getElementById('avatar-grid');
+      grid.innerHTML = '';
+      ALLOWED_AVATARS.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'avatar-option' + (emoji === selectedAvatar ? ' selected' : '');
+        btn.textContent = emoji;
+        btn.onclick = () => {
+          selectedAvatar = emoji;
+          document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+          btn.classList.add('selected');
+        };
+        grid.appendChild(btn);
+      });
+
+      document.getElementById('settings-modal').classList.add('active');
+    }
+
+    function closeSettings() {
+      document.getElementById('settings-modal').classList.remove('active');
+    }
+
+    async function saveSettings() {
+      const newNickname = document.getElementById('settings-nick').value;
+      const errorEl = document.getElementById('settings-error');
+      errorEl.textContent = '';
+
+      try {
+        const res = await fetch('/api/update-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: currentUser.id,
+            newNickname,
+            newAvatar: selectedAvatar
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errorEl.textContent = data.error || 'Ошибка сохранения';
+          return;
+        }
+
+        currentUser = data.user;
+        updateHeaderUI();
+        closeSettings();
+      } catch (err) {
+        errorEl.textContent = 'Ошибка соединения с сервером';
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('pigeon_user_id');
+      currentUser = null;
+      closeSettings();
+      document.getElementById('main-screen').classList.remove('active');
+      document.getElementById('auth-nick').value = '';
+      document.getElementById('auth-pass').value = '';
+      document.getElementById('auth-screen').classList.add('active');
+    }
+  </script>
+</body>
+</html>
