@@ -345,7 +345,7 @@
       height: 24px;
       padding: 0 7px;
       border-radius: 999px;
-      background: #38bdf8;
+      background: #cbd5e1;
       color: #0f172a;
       font-size: 12px;
       font-weight: 700;
@@ -1159,8 +1159,8 @@
           input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
         scrollChatToBottom(true);
-      }, 150);
-      setTimeout(() => scrollChatToBottom(true), 350);
+      }, 120);
+      setTimeout(() => scrollChatToBottom(true), 280);
     }
 
     if (window.visualViewport) {
@@ -1178,6 +1178,13 @@
 
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && currentUser) {
+        if (activePeer) fetchMessages();
+        loadChatsList();
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      if (currentUser) {
         if (activePeer) fetchMessages();
         loadChatsList();
       }
@@ -1322,7 +1329,7 @@
         if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
           loadChatsList();
         }
-      }, 2500);
+      }, 800);
     }
 
     function updateHeaderUI() {
@@ -1535,7 +1542,7 @@
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 1200);
+      chatPollTimer = setInterval(fetchMessages, 250);
     }
 
     function closeChatRoom() {
@@ -2026,4 +2033,4 @@
     }
   </script>
 </body>
-  </html>
+</html>
