@@ -149,6 +149,35 @@ def safe_user(user: dict) -> dict:
     return {k: v for k, v in user.items() if k != 'password'}
 
 
+def serialize_group(grp: dict, users_by_id: dict) -> dict:
+    members = list(grp.get('members') or [])
+    owner_id = grp.get('owner_id', '')
+    if owner_id and owner_id not in members:
+        members.insert(0, owner_id)
+    muted_members = [m for m in (grp.get('muted_members') or []) if m in members and m != owner_id]
+    member_details = []
+    for mid in members:
+        u = users_by_id.get(mid)
+        member_details.append({
+            'id': mid,
+            'nickname': u.get('nickname', 'Пользователь') if u else 'Пользователь',
+            'avatar': u.get('avatar', '🕊️') if u else '🕊️',
+            'muted': mid in muted_members,
+            'isOwner': mid == owner_id
+        })
+    return {
+        'id': grp.get('id', ''),
+        'name': grp.get('name', 'Группа'),
+        'icon': grp.get('icon', '👥'),
+        'owner_id': owner_id,
+        'members': members,
+        'muted_members': muted_members,
+        'member_details': member_details,
+        'muted': bool(grp.get('muted')),
+        'created_at': grp.get('created_at', 0)
+    }
+
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -798,11 +827,26 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       padding: 8px 10px;
       border-radius: 10px;
       background: #1e293b;
-      cursor: pointer;
     }
 
-    .member-check-left { display: flex; align-items: center; gap: 8px; }
+    .member-check-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .member-check-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: #22c55e; }
+
+    .member-row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+    .mini-action-btn {
+      padding: 6px 9px;
+      border-radius: 8px;
+      border: none;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #334155;
+      color: #f8fafc;
+    }
+
+    .mini-action-btn.muted-on { background: #92400e; color: #fde68a; }
+    .mini-action-btn.kick { background: #7f1d1d; color: #fecaca; }
 
     .sheet-reactions-summary {
       background: #0f172a;
@@ -836,6 +880,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .sheet-btn.green { background: #22c55e; color: #0f172a; font-weight: 700; }
     .sheet-btn.reply { background: #0284c7; color: #ffffff; }
     .sheet-btn.copy { background: #1e3a5f; color: #bae6fd; }
+    .sheet-btn.warn { background: #78350f; color: #fde68a; }
     .sheet-btn.delete { background: #7f1d1d; color: #fecaca; }
     .sheet-btn.cancel { background: #0f172a; color: #94a3b8; }
 
@@ -1109,7 +1154,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
 
     <div class="muted-chat-notice" id="muted-chat-notice" style="display:none;">
-      🔇 Владелец группы запретил участникам писать сообщения
+      🔇 Вам запрещено писать сообщения в этой группе
     </div>
 
     <form class="chat-input-bar" id="chat-form" onsubmit="sendChatMessage(event)">
@@ -1168,15 +1213,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
 
         <div class="input-group">
+          <label>Участники группы (мут / удаление)</label>
+          <div class="member-select-list" id="current-group-members-list"></div>
+        </div>
+
+        <div class="input-group">
           <label>Добавить участников</label>
           <div class="member-select-list" id="add-group-members-list"></div>
         </div>
         <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
 
-        <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать участникам</button>
+        <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать всем участникам</button>
         <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
       </div>
 
+      <button type="button" class="sheet-btn warn" onclick="leaveCurrentGroup()">🚪 Выйти из группы</button>
       <button type="button" class="sheet-btn cancel" onclick="closeGroupManageModal()">Закрыть</button>
     </div>
   </div>
@@ -1197,7 +1248,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       <button type="button" class="sheet-btn reply" onclick="triggerReplyMessage()">↩️ Ответить</button>
       <button type="button" class="sheet-btn copy" onclick="triggerCopyMessage()">📋 Копировать сообщение</button>
-      <button type="button" class="sheet-btn delete" onclick="triggerDeleteMessage()">🗑️ Удалить</button>
+      <button type="button" class="sheet-btn delete" id="sheet-delete-msg-btn" onclick="triggerDeleteMessage()">🗑️ Удалить</button>
       <button type="button" class="sheet-btn cancel" onclick="closeMessageMenu()">Отмена</button>
     </div>
   </div>
@@ -1236,6 +1287,24 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function isGroupOwner(groupObj) {
       if (!groupObj || !currentUser || !currentUser.id) return false;
       return String(groupObj.ownerId || groupObj.owner_id || '') === String(currentUser.id);
+    }
+
+    function isUserMutedInGroup(groupObj, userId) {
+      if (!groupObj || !groupObj.isGroup) return false;
+      if (String(groupObj.ownerId || groupObj.owner_id || '') === String(userId)) return false;
+      if (groupObj.muted) return true;
+      const mutedList = Array.isArray(groupObj.mutedMembers || groupObj.muted_members)
+        ? (groupObj.mutedMembers || groupObj.muted_members)
+        : [];
+      return mutedList.includes(userId);
+    }
+
+    function canDeleteSelectedMessage() {
+      if (!selectedMessage || !currentUser || !activePeer) return false;
+      if (activePeer.isGroup) {
+        return isGroupOwner(activePeer);
+      }
+      return true;
     }
 
     function makeCheckmarkBadge(bgColor) {
@@ -1633,6 +1702,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           isGroup,
           ownerId: c.ownerId || '',
           members: Array.isArray(c.members) ? c.members : [],
+          mutedMembers: Array.isArray(c.mutedMembers) ? c.mutedMembers : [],
+          memberDetails: Array.isArray(c.memberDetails) ? c.memberDetails : [],
           muted: Boolean(c.muted)
         }));
         const unreadVal = Number(c.unreadCount) || 0;
@@ -1665,6 +1736,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         const prevCached = readChatsCache(currentUser.id);
         if (data.chats.length === 0 && prevCached.length > 0) {
+          // Если удалили или вышли из единственной группы, синхронизируем пустой список
+          if (prevCached.length === 1 && prevCached[0].isGroup) {
+            writeChatsCache(currentUser.id, []);
+            renderChatsListItems([]);
+            return;
+          }
           renderChatsListItems(prevCached);
           return;
         }
@@ -1700,6 +1777,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             activePeer.muted = Boolean(c.muted);
             activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
             activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
+            activePeer.mutedMembers = Array.isArray(c.mutedMembers) ? c.mutedMembers : [];
+            activePeer.memberDetails = Array.isArray(c.memberDetails) ? c.memberDetails : [];
             document.getElementById('peer-avatar').textContent = av;
             document.getElementById('peer-nick').textContent = c.nickname;
             applyGroupRoomState();
@@ -1730,13 +1809,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       titleEl.classList.add('peer-title-clickable');
       const memberCount = Array.isArray(activePeer.members) ? activePeer.members.length : 0;
-      const isOwner = isGroupOwner(activePeer);
-      subEl.textContent = isOwner
-        ? `Участников: ${memberCount} • Нажми для настройки`
-        : `Участников: ${memberCount} • Инфо о группе`;
+      subEl.textContent = `Участников: ${memberCount}`;
       subEl.style.display = 'block';
 
-      const isMutedForMe = Boolean(activePeer.muted) && !isOwner;
+      const isMutedForMe = isUserMutedInGroup(activePeer, currentUser?.id);
       noticeEl.style.display = isMutedForMe ? 'block' : 'none';
       formEl.style.display = isMutedForMe ? 'none' : 'flex';
     }
@@ -1827,11 +1903,38 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             isGroup: true,
             ownerId: data.group.owner_id,
             members: data.group.members || [],
+            mutedMembers: data.group.muted_members || [],
+            memberDetails: data.group.member_details || [],
             muted: Boolean(data.group.muted)
           });
         }
       } catch (e) {
         errEl.textContent = 'Нет связи с сервером';
+      }
+    }
+
+    function syncGroupDataFromServer(serverGroup) {
+      if (!serverGroup) return;
+      if (editingGroupState && editingGroupState.id === serverGroup.id) {
+        editingGroupState.nickname = serverGroup.name;
+        editingGroupState.avatar = serverGroup.icon;
+        editingGroupState.ownerId = serverGroup.owner_id;
+        editingGroupState.members = serverGroup.members || [];
+        editingGroupState.mutedMembers = serverGroup.muted_members || [];
+        editingGroupState.memberDetails = serverGroup.member_details || [];
+        editingGroupState.muted = Boolean(serverGroup.muted);
+      }
+      if (activePeer && activePeer.id === serverGroup.id) {
+        activePeer.nickname = serverGroup.name;
+        activePeer.avatar = serverGroup.icon;
+        activePeer.ownerId = serverGroup.owner_id;
+        activePeer.members = serverGroup.members || [];
+        activePeer.mutedMembers = serverGroup.muted_members || [];
+        activePeer.memberDetails = serverGroup.member_details || [];
+        activePeer.muted = Boolean(serverGroup.muted);
+        document.getElementById('peer-nick').textContent = activePeer.nickname;
+        document.getElementById('peer-avatar').textContent = activePeer.avatar;
+        applyGroupRoomState();
       }
     }
 
@@ -1846,11 +1949,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!canEdit) {
         document.getElementById('group-manage-title').textContent = `${groupObj.avatar || '👥'} ${groupObj.nickname}`;
         const memberCount = Array.isArray(groupObj.members) ? groupObj.members.length : 0;
+        const mutedForMe = isUserMutedInGroup(groupObj, currentUser?.id);
         readonlyEl.innerHTML = `
           <div><strong>Название:</strong> ${escapeHtml(groupObj.nickname)}</div>
           <div><strong>Участников:</strong> ${memberCount}</div>
-          <div><strong>Режим чата:</strong> ${groupObj.muted ? 'Писать может только владелец' : 'Писать могут все участники'}</div>
-          <div style="color:#94a3b8;font-size:12px;">Изменять настройки группы может только её владелец.</div>
+          <div><strong>Статус:</strong> ${mutedForMe ? 'Вам запрещено писать сообщения' : 'Вы можете отправлять сообщения'}</div>
         `;
         readonlyEl.style.display = 'flex';
         ownerControlsEl.style.display = 'none';
@@ -1860,13 +1963,61 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       readonlyEl.style.display = 'none';
       ownerControlsEl.style.display = 'flex';
-      document.getElementById('group-manage-title').textContent = `Управление группой: ${groupObj.nickname}`;
+      document.getElementById('group-manage-title').textContent = `Настройки группы: ${groupObj.nickname}`;
       document.getElementById('edit-group-name').value = groupObj.nickname;
 
       const iconGrid = document.getElementById('edit-group-icon-grid');
       iconGrid.innerHTML = GROUP_ICONS.map(ic => `
         <button type="button" class="emoji-pick-btn ${ic === selectedEditGroupIcon ? 'selected' : ''}" onclick="pickEditGroupIcon('${ic}', this)">${ic}</button>
       `).join('');
+
+      // Список текущих участников группы с кнопками персонального мута и удаления
+      const currentMembersBox = document.getElementById('current-group-members-list');
+      const details = Array.isArray(groupObj.memberDetails) && groupObj.memberDetails.length > 0
+        ? groupObj.memberDetails
+        : (Array.isArray(groupObj.members) ? groupObj.members.map(mid => ({
+            id: mid,
+            nickname: mid === currentUser.id ? currentUser.nickname : mid,
+            avatar: mid === currentUser.id ? currentUser.avatar : resolveAvatar(mid, null),
+            muted: (groupObj.mutedMembers || []).includes(mid),
+            isOwner: mid === (groupObj.ownerId || groupObj.owner_id)
+          })) : []);
+
+      currentMembersBox.innerHTML = details.map(m => {
+        if (m.isOwner || m.id === currentUser.id) {
+          return `
+            <div class="member-check-item">
+              <div class="member-check-left">
+                <span style="font-size:20px;">${escapeHtml(m.avatar || '🕊️')}</span>
+                <span>${escapeHtml(m.nickname)} <strong style="color:#38bdf8;">(Владелец)</strong></span>
+              </div>
+            </div>
+          `;
+        }
+        const isMuted = Boolean(m.muted);
+        return `
+          <div class="member-check-item">
+            <div class="member-check-left">
+              <span style="font-size:20px;">${escapeHtml(m.avatar || '🕊️')}</span>
+              <span>${escapeHtml(m.nickname)}</span>
+            </div>
+            <div class="member-row-actions">
+              <button
+                type="button"
+                class="mini-action-btn ${isMuted ? 'muted-on' : ''}"
+                title="${isMuted ? 'Разрешить писать' : 'Запретить писать'}"
+                onclick="toggleSingleMemberMute('${escapeHtml(m.id)}', ${isMuted ? 'false' : 'true'})"
+              >${isMuted ? '🔇 Мут' : '🔊'}</button>
+              <button
+                type="button"
+                class="mini-action-btn kick"
+                title="Удалить участника из группы"
+                onclick="kickSingleMember('${escapeHtml(m.id)}')"
+              >✖</button>
+            </div>
+          </div>
+        `;
+      }).join('');
 
       const currentMembers = Array.isArray(groupObj.members) ? groupObj.members : [];
       const candidates = getDirectPartnersForGroup().filter(p => !currentMembers.includes(p.id));
@@ -1886,7 +2037,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       }
 
       const muteBtn = document.getElementById('toggle-mute-btn');
-      muteBtn.textContent = groupObj.muted ? 'Разрешить писать участникам' : 'Запретить писать участникам';
+      muteBtn.textContent = groupObj.muted ? 'Разрешить писать всем участникам' : 'Запретить писать всем участникам';
 
       document.getElementById('group-manage-modal').classList.add('active');
     }
@@ -1900,6 +2051,58 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function closeGroupManageModal(event) {
       if (event && event.target !== event.currentTarget) return;
       document.getElementById('group-manage-modal').classList.remove('active');
+    }
+
+    async function toggleSingleMemberMute(targetUserId, nextMuted) {
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
+      try {
+        const res = await fetch('/api/groups/member-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            group_id: editingGroupState.id,
+            user_id: currentUser.id,
+            target_user_id: targetUserId,
+            action: nextMuted ? 'mute' : 'unmute'
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.group) {
+          syncGroupDataFromServer(data.group);
+          openGroupManageModal(editingGroupState);
+          showCopyToast(nextMuted ? 'Участнику запрещено писать' : 'Участнику разрешено писать');
+          loadChatsList();
+        } else if (data.error) {
+          showCopyToast(data.error);
+        }
+      } catch (e) {}
+    }
+
+    async function kickSingleMember(targetUserId) {
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
+      try {
+        const res = await fetch('/api/groups/member-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            group_id: editingGroupState.id,
+            user_id: currentUser.id,
+            target_user_id: targetUserId,
+            action: 'remove'
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.group) {
+          syncGroupDataFromServer(data.group);
+          openGroupManageModal(editingGroupState);
+          showCopyToast('Участник удалён из группы');
+          loadChatsList();
+        } else if (data.error) {
+          showCopyToast(data.error);
+        }
+      } catch (e) {}
     }
 
     async function saveGroupDetails() {
@@ -1923,15 +2126,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (res.ok && data.group) {
-          editingGroupState.nickname = data.group.name;
-          editingGroupState.avatar = data.group.icon;
-          if (activePeer && activePeer.id === data.group.id) {
-            activePeer.nickname = data.group.name;
-            activePeer.avatar = data.group.icon;
-            document.getElementById('peer-nick').textContent = data.group.name;
-            document.getElementById('peer-avatar').textContent = data.group.icon;
-          }
-          document.getElementById('group-manage-title').textContent = `Управление группой: ${data.group.name}`;
+          syncGroupDataFromServer(data.group);
+          document.getElementById('group-manage-title').textContent = `Настройки группы: ${data.group.name}`;
           showCopyToast('Группа обновлена');
           loadChatsList();
         } else if (data.error) {
@@ -1960,11 +2156,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (res.ok && data.group) {
-          editingGroupState.members = data.group.members || [];
-          if (activePeer && activePeer.id === data.group.id) {
-            activePeer.members = editingGroupState.members;
-            applyGroupRoomState();
-          }
+          syncGroupDataFromServer(data.group);
           openGroupManageModal(editingGroupState);
           showCopyToast('Участники добавлены');
           loadChatsList();
@@ -1990,19 +2182,39 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (res.ok && data.group) {
-          editingGroupState.muted = Boolean(data.group.muted);
-          if (activePeer && activePeer.id === data.group.id) {
-            activePeer.muted = editingGroupState.muted;
-            applyGroupRoomState();
-          }
+          syncGroupDataFromServer(data.group);
           document.getElementById('toggle-mute-btn').textContent = editingGroupState.muted
-            ? 'Разрешить писать участникам'
-            : 'Запретить писать участникам';
+            ? 'Разрешить писать всем участникам'
+            : 'Запретить писать всем участникам';
           showCopyToast(editingGroupState.muted ? 'Писать участникам запрещено' : 'Писать участникам разрешено');
           loadChatsList();
         } else if (data.error) {
           showCopyToast(data.error);
         }
+      } catch (e) {}
+    }
+
+    async function leaveCurrentGroup() {
+      if (!editingGroupState || !currentUser) return;
+      const gid = editingGroupState.id;
+      document.getElementById('group-manage-modal').classList.remove('active');
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
+      renderChatsListItems(readChatsCache(currentUser.id));
+      if (activePeer && activePeer.id === gid) {
+        activePeer = null;
+        document.getElementById('chat-room-view').classList.remove('active');
+        if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+      }
+      updateFabVisibility();
+      try {
+        await fetch('/api/groups/leave', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ group_id: gid, user_id: currentUser.id })
+        });
+        showCopyToast('Вы вышли из группы');
+        loadChatsList();
       } catch (e) {}
     }
 
@@ -2025,6 +2237,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           cache: 'no-store',
           body: JSON.stringify({ group_id: gid, user_id: currentUser.id })
         });
+        showCopyToast('Группа удалена');
         loadChatsList();
       } catch (e) {}
     }
@@ -2186,19 +2399,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerSnapshot.id || !Array.isArray(data.messages)) return;
 
-        if (data.group) {
-          activePeer.nickname = data.group.name;
-          activePeer.avatar = data.group.icon;
-          activePeer.muted = Boolean(data.group.muted);
-          activePeer.ownerId = data.group.owner_id;
-          activePeer.members = data.group.members || [];
-          document.getElementById('peer-nick').textContent = activePeer.nickname;
-          document.getElementById('peer-avatar').textContent = activePeer.avatar;
-          applyGroupRoomState();
+        if (peerSnapshot.isGroup) {
+          if (!data.group || !(data.group.members || []).includes(currentUser.id)) {
+            showCopyToast('Вы больше не состоите в этой группе');
+            closeChatRoom();
+            loadChatsList();
+            return;
+          }
+          syncGroupDataFromServer(data.group);
         }
 
         const serverMsgs = data.messages.map(srv => ({ ...srv, reactions: normalizeReactions(srv.reactions) }));
-        if (serverMsgs.length === 0 && currentMessagesCache.length > 0) return;
+        if (serverMsgs.length === 0 && currentMessagesCache.length > 0 && !peerSnapshot.isGroup) return;
 
         const localOnlyPending = currentMessagesCache.filter(localMsg => {
           if (!String(localMsg.id).startsWith('msg_')) return false;
@@ -2233,8 +2445,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function submitInstantMessage() {
       if (!currentUser || !activePeer) return;
-      if (activePeer.isGroup && activePeer.muted && !isGroupOwner(activePeer)) {
-        showCopyToast('Писать участникам запрещено');
+      if (activePeer.isGroup && isUserMutedInGroup(activePeer, currentUser.id)) {
+        showCopyToast('Вам запрещено писать в этой группе');
         return;
       }
 
@@ -2309,6 +2521,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(r => r.json())
         .then(data => {
           if (data.error) {
+            currentMessagesCache = currentMessagesCache.filter(m => m.id !== tempId);
+            renderMessages(currentMessagesCache, false);
             showCopyToast(data.error);
             return;
           }
@@ -2341,6 +2555,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const shortText = msg.text.length > 40 ? msg.text.slice(0, 40) + '...' : msg.text;
       document.getElementById('action-sheet-preview').textContent = `«${shortText}»`;
       renderSheetReactionsUI(msg);
+
+      const delBtn = document.getElementById('sheet-delete-msg-btn');
+      if (delBtn) delBtn.style.display = canDeleteSelectedMessage() ? 'block' : 'none';
+
       document.getElementById('msg-action-sheet').classList.add('active');
     }
 
@@ -2426,6 +2644,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function triggerDeleteMessage() {
       if (!selectedMessage || !activePeer) return;
+      if (!canDeleteSelectedMessage()) {
+        showCopyToast('Удалять сообщения в группе может только владелец');
+        document.getElementById('msg-action-sheet').classList.remove('active');
+        return;
+      }
+
       const targetId = selectedMessage.id;
       const peerId = activePeer.id;
       document.getElementById('msg-action-sheet').classList.remove('active');
@@ -2441,7 +2665,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           cache: 'no-store',
           keepalive: true,
           body: JSON.stringify({ message_id: targetId, user_id: currentUser.id })
-        }).catch(() => {});
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) {
+              showCopyToast(data.error);
+              fetchMessages();
+            }
+          })
+          .catch(() => {});
       }
       selectedMessage = null;
     }
@@ -2718,18 +2950,20 @@ def create_group():
 
     now_ms = int(time.time() * 1000)
     db = load_db(force_refresh=True)
+    users_by_id = {u['id']: u for u in db['users']}
     group_obj = {
         'id': f'grp_{now_ms}',
         'name': name[:32],
         'icon': icon,
         'owner_id': creator_id,
         'members': members,
+        'muted_members': [],
         'muted': False,
         'created_at': now_ms
     }
     db['groups'].append(group_obj)
     save_db(db)
-    return jsonify({'group': group_obj})
+    return jsonify({'group': serialize_group(group_obj, users_by_id)})
 
 
 @app.route('/api/groups/update', methods=['POST'])
@@ -2738,6 +2972,7 @@ def update_group():
     group_id = (data.get('group_id') or '').strip()
     user_id = (data.get('user_id') or '').strip()
     db = load_db(force_refresh=True)
+    users_by_id = {u['id']: u for u in db['users']}
 
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
@@ -2755,7 +2990,7 @@ def update_group():
         grp['muted'] = bool(data['muted'])
 
     save_db(db)
-    return jsonify({'group': grp})
+    return jsonify({'group': serialize_group(grp, users_by_id)})
 
 
 @app.route('/api/groups/add-members', methods=['POST'])
@@ -2766,6 +3001,7 @@ def add_group_members():
     raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
 
     db = load_db(force_refresh=True)
+    users_by_id = {u['id']: u for u in db['users']}
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
@@ -2779,7 +3015,77 @@ def add_group_members():
             members.append(sid)
     grp['members'] = members
     save_db(db)
-    return jsonify({'group': grp})
+    return jsonify({'group': serialize_group(grp, users_by_id)})
+
+
+@app.route('/api/groups/member-action', methods=['POST'])
+def group_member_action():
+    data = request.get_json() or {}
+    group_id = (data.get('group_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
+    target_user_id = (data.get('target_user_id') or '').strip()
+    action = (data.get('action') or '').strip()
+
+    db = load_db(force_refresh=True)
+    users_by_id = {u['id']: u for u in db['users']}
+    grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+    if not grp:
+        return jsonify({'error': 'Группа не найдена'}), 404
+    if not user_id or grp.get('owner_id') != user_id:
+        return jsonify({'error': 'Только владелец группы может управлять участниками'}), 403
+    if not target_user_id or target_user_id == grp.get('owner_id'):
+        return jsonify({'error': 'Нельзя применить это действие к владельцу группы'}), 400
+
+    members = list(grp.get('members') or [])
+    muted_members = list(grp.get('muted_members') or [])
+
+    if action == 'mute':
+        if target_user_id in members and target_user_id not in muted_members:
+            muted_members.append(target_user_id)
+    elif action == 'unmute':
+        muted_members = [m for m in muted_members if m != target_user_id]
+    elif action == 'remove':
+        members = [m for m in members if m != target_user_id]
+        muted_members = [m for m in muted_members if m != target_user_id]
+    else:
+        return jsonify({'error': 'Неизвестное действие'}), 400
+
+    grp['members'] = members
+    grp['muted_members'] = muted_members
+    save_db(db)
+    return jsonify({'group': serialize_group(grp, users_by_id)})
+
+
+@app.route('/api/groups/leave', methods=['POST'])
+def leave_group():
+    data = request.get_json() or {}
+    group_id = (data.get('group_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
+
+    db = load_db(force_refresh=True)
+    grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+    if not grp:
+        return jsonify({'error': 'Группа не найдена'}), 404
+    if not user_id:
+        return jsonify({'error': 'Не указан пользователь'}), 400
+
+    members = [m for m in (grp.get('members') or []) if m != user_id]
+    muted_members = [m for m in (grp.get('muted_members') or []) if m != user_id]
+
+    if grp.get('owner_id') == user_id:
+        if len(members) == 0:
+            db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
+            db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
+            save_db(db)
+            return jsonify({'ok': True, 'deleted': True})
+        new_owner = members[0]
+        grp['owner_id'] = new_owner
+        muted_members = [m for m in muted_members if m != new_owner]
+
+    grp['members'] = members
+    grp['muted_members'] = muted_members
+    save_db(db)
+    return jsonify({'ok': True, 'left_group_id': group_id})
 
 
 @app.route('/api/groups/delete', methods=['POST'])
@@ -2848,7 +3154,8 @@ def get_chats():
         members = grp.get('members') or []
         if user_id not in members and grp.get('owner_id') != user_id:
             continue
-        gid = grp.get('id')
+        ser_grp = serialize_group(grp, users_by_id)
+        gid = ser_grp['id']
         g_msgs = [m for m in db['messages'] if m.get('group_id') == gid]
         g_msgs.sort(key=lambda x: x.get('timestamp', 0))
         last_msg = g_msgs[-1] if g_msgs else None
@@ -2856,17 +3163,19 @@ def get_chats():
 
         chats.append({
             'id': gid,
-            'nickname': grp.get('name', 'Группа'),
-            'avatar': grp.get('icon', '👥'),
+            'nickname': ser_grp['name'],
+            'avatar': ser_grp['icon'],
             'verified': False,
             'isGroup': True,
-            'ownerId': grp.get('owner_id', ''),
-            'members': members,
-            'muted': bool(grp.get('muted')),
+            'ownerId': ser_grp['owner_id'],
+            'members': ser_grp['members'],
+            'mutedMembers': ser_grp['muted_members'],
+            'memberDetails': ser_grp['member_details'],
+            'muted': ser_grp['muted'],
             'lastMessage': last_msg.get('text', '') if last_msg else '',
             'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
             'lastSenderName': last_sender.get('nickname', '') if last_msg else '',
-            'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else grp.get('created_at', 0)
+            'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else ser_grp['created_at']
         })
 
     chats.sort(key=lambda c: c['lastTimestamp'], reverse=True)
@@ -2880,11 +3189,14 @@ def get_messages():
     group_id = (request.args.get('group_id') or '').strip()
 
     db = load_db()
+    users_by_id = {u['id']: u for u in db['users']}
     if group_id:
         grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+        if not grp:
+            return jsonify({'messages': [], 'group': None})
         g_msgs = [m for m in db['messages'] if m.get('group_id') == group_id]
         g_msgs.sort(key=lambda x: x.get('timestamp', 0))
-        return jsonify({'messages': g_msgs, 'group': grp})
+        return jsonify({'messages': g_msgs, 'group': serialize_group(grp, users_by_id)})
 
     if not user_id or not peer_id:
         return jsonify({'messages': []})
@@ -2922,8 +3234,12 @@ def send_message():
         grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
         if not grp:
             return jsonify({'error': 'Группа не найдена'}), 404
-        if grp.get('muted') and grp.get('owner_id') != sender_id:
-            return jsonify({'error': 'Владелец группы запретил писать участникам'}), 403
+        members = grp.get('members') or []
+        if sender_id not in members and grp.get('owner_id') != sender_id:
+            return jsonify({'error': 'Вы не состоите в этой группе'}), 403
+        if grp.get('owner_id') != sender_id:
+            if grp.get('muted') or sender_id in (grp.get('muted_members') or []):
+                return jsonify({'error': 'Владелец группы запретил вам писать сообщения'}), 403
     elif users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
         return jsonify({'error': 'Пользователь не найден'}), 404
 
@@ -3002,14 +3318,22 @@ def delete_message():
         return jsonify({'error': 'Не указан ID сообщения'}), 400
 
     db = load_db()
-    before_count = len(db['messages'])
-    db['messages'] = [
-        m for m in db['messages']
-        if not (m.get('id') == msg_id and (not user_id or m.get('sender_id') == user_id or m.get('receiver_id') == user_id or m.get('group_id')))
-    ]
-    if len(db['messages']) == before_count:
+    target_msg = next((m for m in db['messages'] if m.get('id') == msg_id), None)
+    if not target_msg:
         return jsonify({'error': 'Сообщение не найдено'}), 404
 
+    gid = (target_msg.get('group_id') or '').strip()
+    if gid:
+        grp = next((g for g in db['groups'] if g.get('id') == gid), None)
+        if not grp:
+            return jsonify({'error': 'Группа не найдена'}), 404
+        if not user_id or grp.get('owner_id') != user_id:
+            return jsonify({'error': 'Удалять сообщения в группе может только владелец'}), 403
+    else:
+        if user_id and target_msg.get('sender_id') != user_id and target_msg.get('receiver_id') != user_id:
+            return jsonify({'error': 'Нет прав на удаление сообщения'}), 403
+
+    db['messages'] = [m for m in db['messages'] if m.get('id') != msg_id]
     save_db(db, async_cloud=True)
     return jsonify({'ok': True, 'deleted_id': msg_id})
 
