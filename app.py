@@ -340,14 +340,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       flex-shrink: 0;
     }
 
-    .nickname-row { display: flex; align-items: center; gap: 5px; font-weight: 700; font-size: 16px; }
+    .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
 
-    .verified-badge {
+    .verified-circle {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       width: 18px;
       height: 18px;
+      border-radius: 50%;
       flex-shrink: 0;
     }
 
@@ -1060,11 +1061,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
 
-    function makeCheckmarkSvg(color) {
+    function makeCheckmarkBadge(bgColor) {
       return `
-        <span class="verified-badge" title="Подтверждённый аккаунт">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="${color}">
-            <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
+        <span class="verified-circle" style="background:${bgColor};" title="Подтверждённый аккаунт">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3.5 8.5 6.5 11.5 12.5 4.5" />
           </svg>
         </span>
       `;
@@ -1073,8 +1074,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function getBadgeHtmlForUser(user) {
       if (!user) return '';
       const nick = String(user.nickname || '').trim().toLowerCase();
-      if (nick === 'кабанчег') return makeCheckmarkSvg('#ef4444');
-      if (user.verified || nick === 'владислав') return makeCheckmarkSvg('#38bdf8');
+      if (nick === 'кабанчег') return makeCheckmarkBadge('#ef4444');
+      if (user.verified || nick === 'владислав') return makeCheckmarkBadge('#38bdf8');
       return '';
     }
 
@@ -1471,7 +1472,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           let unreadCount = Math.max(typeof c.unreadCount === 'number' ? c.unreadCount : 0, localUnread);
           const nextLastMsg = c.lastMessage || (localMsgs.length > 0 ? localMsgs[localMsgs.length - 1].text : 'Нет сообщений');
           const prevLastMsg = prevItem ? prevItem.lastMessage : null;
-          if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || activePeer.id !== c.id)) {
+          const sentByMeRecently = c.lastSenderId === currentUser.id || (localMsgs.length > 0 && localMsgs[localMsgs.length - 1].sender_id === currentUser.id);
+
+          if (sentByMeRecently) {
+            markChatAsRead(currentUser.id, c.id, Number(c.lastTimestamp) || Date.now());
+            unreadCount = 0;
+          } else if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || activePeer.id !== c.id)) {
             unreadCount = Math.max(prevUnread + 1, 1);
           } else if (prevItem && nextLastMsg === prevLastMsg && unreadCount === 0 && prevUnread > 0 && (!activePeer || activePeer.id !== c.id)) {
             unreadCount = prevUnread;
@@ -1686,7 +1692,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       currentMessagesCache = [...currentMessagesCache, newMsg];
       writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
-      markChatAsRead(currentUser.id, peerId, nowTs);
+      markChatAsRead(currentUser.id, peerId, nowTs + 1000);
 
       const prevChats = readChatsCache(currentUser.id);
       const existingIdx = prevChats.findIndex(c => c.id === peerId);
@@ -1696,6 +1702,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         avatar: peerAv,
         verified: peerVerified,
         lastMessage: text,
+        lastSenderId: currentUser.id,
         lastTimestamp: nowTs,
         unreadCount: 0
       };
@@ -1716,6 +1723,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(r => r.json())
         .then(data => {
           if (data.message && data.message.id) {
+            const srvTs = Number(data.message.timestamp) || nowTs;
+            markChatAsRead(currentUser.id, peerId, srvTs + 1000);
             currentMessagesCache = currentMessagesCache.map(m => m.id === tempId ? { ...data.message, reactions: normalizeReactions(data.message.reactions) } : m);
             writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
           }
@@ -2128,6 +2137,7 @@ def get_chats():
             'avatar': partner.get('avatar', '🕊️'),
             'verified': has_any_checkmark(partner['nickname']),
             'lastMessage': last_msg.get('text', '') if last_msg else '',
+            'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
             'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else 0
         })
 
