@@ -173,7 +173,6 @@ def serialize_group(grp: dict, users_by_id: dict) -> dict:
         'members': members,
         'muted_members': muted_members,
         'member_details': member_details,
-        'muted': bool(grp.get('muted')),
         'created_at': grp.get('created_at', 0)
     }
 
@@ -185,6 +184,71 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Голубиная почта</title>
   <style>
+    :root {
+      --bg-main: #0f172a;
+      --bg-surface: #1e293b;
+      --bg-elevated: #334155;
+      --border-subtle: #334155;
+      --accent: #38bdf8;
+      --accent-text: #0f172a;
+      --bubble-mine: #0284c7;
+      --bubble-mine-text: #ffffff;
+      --chip-active-bg: #1e3a5f;
+      --chip-active-users: #bae6fd;
+    }
+
+    body[data-theme="blue"] {
+      --bg-main: #0f172a;
+      --bg-surface: #1e293b;
+      --bg-elevated: #334155;
+      --border-subtle: #334155;
+      --accent: #38bdf8;
+      --accent-text: #0f172a;
+      --bubble-mine: #0284c7;
+      --bubble-mine-text: #ffffff;
+      --chip-active-bg: #1e3a5f;
+      --chip-active-users: #bae6fd;
+    }
+
+    body[data-theme="green"] {
+      --bg-main: #071912;
+      --bg-surface: #0f2c20;
+      --bg-elevated: #184231;
+      --border-subtle: #1e4d39;
+      --accent: #34d399;
+      --accent-text: #052e16;
+      --bubble-mine: #059669;
+      --bubble-mine-text: #ffffff;
+      --chip-active-bg: #064e3b;
+      --chip-active-users: #a7f3d0;
+    }
+
+    body[data-theme="red"] {
+      --bg-main: #1b090c;
+      --bg-surface: #2e1116;
+      --bg-elevated: #471921;
+      --border-subtle: #571f29;
+      --accent: #fb7185;
+      --accent-text: #2b060c;
+      --bubble-mine: #e11d48;
+      --bubble-mine-text: #ffffff;
+      --chip-active-bg: #4c0519;
+      --chip-active-users: #fecdd3;
+    }
+
+    body[data-theme="yellow"] {
+      --bg-main: #191405;
+      --bg-surface: #2b2209;
+      --bg-elevated: #42340e;
+      --border-subtle: #524112;
+      --accent: #facc15;
+      --accent-text: #1c1402;
+      --bubble-mine: #ca8a04;
+      --bubble-mine-text: #ffffff;
+      --chip-active-bg: #422006;
+      --chip-active-users: #fef08a;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -194,7 +258,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     html, body {
-      background: #0f172a;
+      background: var(--bg-main);
       color: #f8fafc;
       height: 100%;
       width: 100%;
@@ -204,7 +268,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     #splash-screen {
       position: fixed;
       inset: 0;
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-main) 100%);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -259,7 +323,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       font-weight: 700;
       letter-spacing: 0.5px;
       color: #ffffff;
-      text-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);
+      text-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
     }
 
     #auth-screen {
@@ -269,7 +333,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       display: none;
       flex-direction: column;
       gap: 16px;
-      background: #1e293b;
+      background: var(--bg-surface);
       border-radius: 20px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.4);
       margin: 16px auto;
@@ -286,7 +350,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .tabs {
       display: flex;
-      background: #0f172a;
+      background: var(--bg-main);
       border-radius: 12px;
       padding: 4px;
     }
@@ -303,8 +367,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .tab-btn.active {
-      background: #38bdf8;
-      color: #0f172a;
+      background: var(--accent);
+      color: var(--accent-text);
     }
 
     .input-group { display: flex; flex-direction: column; gap: 6px; }
@@ -314,22 +378,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       width: 100%;
       padding: 12px 14px;
       border-radius: 12px;
-      border: 1px solid #334155;
-      background: #0f172a;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-main);
       color: #fff;
       font-size: 16px;
       outline: none;
     }
 
-    input:focus { border-color: #38bdf8; }
+    input:focus { border-color: var(--accent); }
 
     .primary-btn {
       width: 100%;
       padding: 13px;
       border: none;
       border-radius: 12px;
-      background: #38bdf8;
-      color: #0f172a;
+      background: var(--accent);
+      color: var(--accent-text);
       font-size: 16px;
       font-weight: 700;
       cursor: pointer;
@@ -346,7 +410,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       width: 100%;
       height: 100%;
       flex-direction: column;
-      background: #0f172a;
+      background: var(--bg-main);
       position: relative;
     }
 
@@ -356,11 +420,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .top-bar {
       height: 60px;
       padding: 0 16px;
-      background: #1e293b;
+      background: var(--bg-surface);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
 
@@ -370,7 +434,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       width: 38px;
       height: 38px;
       border-radius: 50%;
-      background: #334155;
+      background: var(--bg-elevated);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -399,7 +463,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       height: 40px;
       border-radius: 12px;
       border: none;
-      background: #334155;
+      background: var(--bg-elevated);
       color: #f8fafc;
       font-size: 19px;
       display: flex;
@@ -408,7 +472,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       cursor: pointer;
     }
 
-    .icon-btn:active { background: #38bdf8; color: #0f172a; }
+    .icon-btn:active { background: var(--accent); color: var(--accent-text); }
 
     #chats-view {
       flex: 1;
@@ -428,13 +492,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       align-items: center;
       gap: 12px;
       padding: 12px;
-      background: #1e293b;
+      background: var(--bg-surface);
       border-radius: 14px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
       cursor: pointer;
     }
 
-    .chat-list-item:active { background: #273549; }
+    .chat-list-item:active { filter: brightness(1.08); }
     .chat-meta { flex: 1; min-width: 0; }
 
     .chat-last-msg {
@@ -499,7 +563,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     #search-view {
       position: fixed;
       inset: 0;
-      background: #0f172a;
+      background: var(--bg-main);
       display: none;
       flex-direction: column;
       gap: 12px;
@@ -516,7 +580,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       padding: 10px 14px;
       border-radius: 12px;
       border: none;
-      background: #334155;
+      background: var(--bg-elevated);
       color: #f8fafc;
       font-weight: 600;
       cursor: pointer;
@@ -531,15 +595,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       justify-content: space-between;
       gap: 10px;
       padding: 12px;
-      background: #1e293b;
+      background: var(--bg-surface);
       border-radius: 14px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
       cursor: pointer;
     }
 
-    .search-user-item:active { background: #273549; }
+    .search-user-item:active { filter: brightness(1.08); }
     .search-user-left { display: flex; align-items: center; gap: 10px; }
-    .open-chat-tag { font-size: 12px; color: #38bdf8; font-weight: 600; }
+    .open-chat-tag { font-size: 12px; color: var(--accent); font-weight: 600; }
     .search-empty { font-size: 13px; color: #94a3b8; padding: 8px 2px; }
 
     #chat-room-view {
@@ -547,7 +611,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       inset: 0;
       width: 100%;
       height: 100%;
-      background: #0f172a;
+      background: var(--bg-main);
       display: none;
       flex-direction: column;
       z-index: 40;
@@ -565,7 +629,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       gap: 8px;
       user-select: none;
       -webkit-user-select: none;
-      background: #0f172a;
+      background: var(--bg-main);
     }
 
     .day-divider {
@@ -573,8 +637,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       margin: 6px 0;
       padding: 4px 12px;
       border-radius: 999px;
-      background: #1e293b;
-      border: 1px solid #334155;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
       color: #cbd5e1;
       font-size: 12px;
       font-weight: 600;
@@ -588,7 +652,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .msg-sender-name {
       font-size: 11px;
       font-weight: 700;
-      color: #38bdf8;
+      color: var(--accent);
       margin-bottom: 3px;
       padding-left: 4px;
     }
@@ -621,17 +685,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .msg-size-medium { font-size: 15px; }
     .msg-size-large { font-size: 18px; }
 
-    .msg-mine { background: #0284c7; color: #ffffff; border-bottom-right-radius: 4px; }
-    .msg-theirs { background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-bottom-left-radius: 4px; }
+    .msg-mine { background: var(--bubble-mine); color: var(--bubble-mine-text); border-bottom-right-radius: 4px; }
+    .msg-theirs { background: var(--bg-surface); color: #f8fafc; border: 1px solid var(--border-subtle); border-bottom-left-radius: 4px; }
 
     .msg-reply-quote {
       font-size: 12px;
       padding: 6px 8px;
       margin-bottom: 6px;
       border-radius: 8px;
-      background: rgba(15, 23, 42, 0.35);
-      border-left: 3px solid #38bdf8;
-      color: #e2e8f0;
+      background: rgba(0, 0, 0, 0.25);
+      border-left: 3px solid var(--accent);
+      color: #f8fafc;
     }
 
     .msg-reactions-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
@@ -642,8 +706,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       gap: 5px;
       padding: 3px 8px;
       border-radius: 999px;
-      background: #1e293b;
-      border: 1px solid #334155;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
       color: #e2e8f0;
       font-size: 12px;
       cursor: pointer;
@@ -651,7 +715,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       max-width: 100%;
     }
 
-    .reaction-chip.active-mine { background: #1e3a5f; border-color: #38bdf8; color: #ffffff; }
+    .reaction-chip.active-mine { background: var(--chip-active-bg); border-color: var(--accent); color: #ffffff; }
     .reaction-chip-emoji { font-size: 13px; }
     .reaction-chip-count { font-weight: 700; font-size: 11px; }
 
@@ -664,7 +728,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       max-width: 160px;
     }
 
-    .reaction-chip.active-mine .reaction-chip-users { color: #bae6fd; }
+    .reaction-chip.active-mine .reaction-chip-users { color: var(--chip-active-users); }
 
     .reply-banner {
       display: none;
@@ -672,8 +736,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       justify-content: space-between;
       gap: 10px;
       padding: 8px 14px;
-      background: #172033;
-      border-top: 1px solid #334155;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
       font-size: 13px;
       color: #cbd5e1;
       flex-shrink: 0;
@@ -685,8 +749,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .chat-input-bar {
       padding: 10px 12px;
-      background: #1e293b;
-      border-top: 1px solid #334155;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
       display: flex;
       gap: 8px;
       align-items: center;
@@ -695,8 +759,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .muted-chat-notice {
       padding: 13px 16px;
-      background: #1e293b;
-      border-top: 1px solid #334155;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
       text-align: center;
       font-size: 13px;
       color: #fca5a5;
@@ -708,8 +772,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       padding: 12px 16px;
       border-radius: 12px;
       border: none;
-      background: #38bdf8;
-      color: #0f172a;
+      background: var(--accent);
+      color: var(--accent-text);
       font-weight: 700;
       cursor: pointer;
       flex-shrink: 0;
@@ -720,9 +784,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       bottom: 80px;
       left: 50%;
       transform: translateX(-50%);
-      background: #1e293b;
+      background: var(--bg-surface);
       color: #f8fafc;
-      border: 1px solid #38bdf8;
+      border: 1px solid var(--accent);
       padding: 8px 16px;
       border-radius: 12px;
       font-size: 13px;
@@ -750,20 +814,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       max-width: 440px;
       max-height: 85vh;
       overflow-y: auto;
-      background: #1e293b;
+      background: var(--bg-surface);
       border-radius: 20px;
       padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
     }
 
     .action-sheet-title { font-size: 14px; font-weight: 700; color: #f8fafc; text-align: center; padding-bottom: 2px; }
 
     .group-info-card {
-      background: #0f172a;
-      border: 1px solid #334155;
+      background: var(--bg-main);
+      border: 1px solid var(--border-subtle);
       border-radius: 12px;
       padding: 12px;
       display: flex;
@@ -777,27 +841,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: 8px;
-      background: #0f172a;
+      background: var(--bg-main);
       padding: 10px;
       border-radius: 14px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
     }
 
     .group-icon-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
       gap: 8px;
-      background: #0f172a;
+      background: var(--bg-main);
       padding: 10px;
       border-radius: 14px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
     }
 
     .emoji-pick-btn {
       height: 42px;
       border-radius: 10px;
       border: 2px solid transparent;
-      background: #1e293b;
+      background: var(--bg-surface);
       font-size: 20px;
       display: flex;
       align-items: center;
@@ -813,10 +877,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       gap: 6px;
       max-height: 190px;
       overflow-y: auto;
-      background: #0f172a;
+      background: var(--bg-main);
       padding: 8px;
       border-radius: 12px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
     }
 
     .member-check-item {
@@ -826,7 +890,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       gap: 10px;
       padding: 8px 10px;
       border-radius: 10px;
-      background: #1e293b;
+      background: var(--bg-surface);
     }
 
     .member-check-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -841,7 +905,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       font-size: 12px;
       font-weight: 700;
       cursor: pointer;
-      background: #334155;
+      background: var(--bg-elevated);
       color: #f8fafc;
     }
 
@@ -849,8 +913,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .mini-action-btn.kick { background: #7f1d1d; color: #fecaca; }
 
     .sheet-reactions-summary {
-      background: #0f172a;
-      border: 1px solid #334155;
+      background: var(--bg-main);
+      border: 1px solid var(--border-subtle);
       border-radius: 12px;
       padding: 10px 12px;
       display: flex;
@@ -873,21 +937,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      background: #334155;
+      background: var(--bg-elevated);
       color: #f8fafc;
     }
 
     .sheet-btn.green { background: #22c55e; color: #0f172a; font-weight: 700; }
-    .sheet-btn.reply { background: #0284c7; color: #ffffff; }
-    .sheet-btn.copy { background: #1e3a5f; color: #bae6fd; }
+    .sheet-btn.reply { background: var(--bubble-mine); color: #ffffff; }
+    .sheet-btn.copy { background: var(--chip-active-bg); color: var(--chip-active-users); }
     .sheet-btn.warn { background: #78350f; color: #fde68a; }
     .sheet-btn.delete { background: #7f1d1d; color: #fecaca; }
-    .sheet-btn.cancel { background: #0f172a; color: #94a3b8; }
+    .sheet-btn.cancel { background: var(--bg-main); color: #94a3b8; }
 
     #settings-screen {
       position: fixed;
       inset: 0;
-      background: #0f172a;
+      background: var(--bg-main);
       display: none;
       flex-direction: column;
       z-index: 45;
@@ -898,26 +962,29 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .settings-tabs-bar {
       display: flex;
-      background: #1e293b;
-      padding: 8px 16px;
-      gap: 8px;
-      border-bottom: 1px solid #334155;
+      background: var(--bg-surface);
+      padding: 8px 12px;
+      gap: 6px;
+      border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
 
     .settings-tab-btn {
       flex: 1;
-      padding: 11px;
+      padding: 10px 6px;
       border-radius: 12px;
       border: none;
-      background: #0f172a;
+      background: var(--bg-main);
       color: #94a3b8;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 12px;
       cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .settings-tab-btn.active { background: #38bdf8; color: #0f172a; }
+    .settings-tab-btn.active { background: var(--accent); color: var(--accent-text); }
 
     .settings-content {
       flex: 1;
@@ -934,10 +1001,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       display: none;
       flex-direction: column;
       gap: 16px;
-      background: #1e293b;
+      background: var(--bg-surface);
       padding: 18px;
       border-radius: 18px;
-      border: 1px solid #334155;
+      border: 1px solid var(--border-subtle);
     }
 
     .settings-section.active { display: flex; }
@@ -946,7 +1013,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .avatar-option {
       aspect-ratio: 1;
       border-radius: 12px;
-      background: #0f172a;
+      background: var(--bg-main);
       border: 2px solid transparent;
       font-size: 24px;
       display: flex;
@@ -955,26 +1022,61 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       cursor: pointer;
     }
 
-    .avatar-option.selected { border-color: #38bdf8; background: #1e3a5f; }
+    .avatar-option.selected { border-color: var(--accent); background: var(--chip-active-bg); }
     .size-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
     .size-btn {
       padding: 11px 8px;
       border-radius: 12px;
-      border: 2px solid #334155;
-      background: #0f172a;
+      border: 2px solid var(--border-subtle);
+      background: var(--bg-main);
       color: #e2e8f0;
       font-weight: 600;
       cursor: pointer;
     }
 
-    .size-btn.selected { border-color: #38bdf8; background: #1e3a5f; color: #ffffff; }
+    .size-btn.selected { border-color: var(--accent); background: var(--chip-active-bg); color: #ffffff; }
+
+    .theme-selector {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .theme-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 2px solid var(--border-subtle);
+      background: var(--bg-main);
+      color: #f8fafc;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .theme-btn.selected {
+      border-color: var(--accent);
+      background: var(--chip-active-bg);
+    }
+
+    .theme-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.25);
+    }
 
     .preview-box {
       padding: 14px;
       border-radius: 14px;
-      background: #0f172a;
-      border: 1px dashed #334155;
+      background: var(--bg-main);
+      border: 1px dashed var(--border-subtle);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -984,7 +1086,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .hint-text { font-size: 12px; color: #94a3b8; }
 
     .logout-btn {
-      background: #334155;
+      background: var(--bg-elevated);
       color: #f87171;
       border: none;
       padding: 12px;
@@ -995,7 +1097,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
   </style>
 </head>
-<body>
+<body data-theme="blue">
   <div id="splash-screen">
     <div class="pigeon-container">
       <svg viewBox="0 0 120 120" width="130" height="130">
@@ -1083,6 +1185,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="settings-tabs-bar">
       <button class="settings-tab-btn active" id="stab-main" onclick="switchSettingsTab('main')">Основная</button>
       <button class="settings-tab-btn" id="stab-custom" onclick="switchSettingsTab('custom')">Кастомизация</button>
+      <button class="settings-tab-btn" id="stab-privacy" onclick="switchSettingsTab('privacy')">Конфиденциальность</button>
     </div>
 
     <div class="settings-content">
@@ -1127,6 +1230,43 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         <div class="ok-msg" id="custom-saved-msg"></div>
         <button class="primary-btn" onclick="saveCustomization()">Применить кастомизацию</button>
+      </div>
+
+      <div class="settings-section" id="ssec-privacy">
+        <div class="input-group">
+          <label>Тема приложения</label>
+          <div class="theme-selector">
+            <button type="button" class="theme-btn" data-theme="blue" onclick="selectAppTheme('blue')">
+              <span class="theme-swatch" style="background:#38bdf8;"></span>
+              <span>Синий (обычный)</span>
+            </button>
+            <button type="button" class="theme-btn" data-theme="green" onclick="selectAppTheme('green')">
+              <span class="theme-swatch" style="background:#34d399;"></span>
+              <span>Зелёный</span>
+            </button>
+            <button type="button" class="theme-btn" data-theme="red" onclick="selectAppTheme('red')">
+              <span class="theme-swatch" style="background:#fb7185;"></span>
+              <span>Красный</span>
+            </button>
+            <button type="button" class="theme-btn" data-theme="yellow" onclick="selectAppTheme('yellow')">
+              <span class="theme-swatch" style="background:#facc15;"></span>
+              <span>Жёлтый</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="preview-box">
+          <div class="preview-label">Предпросмотр темы:</div>
+          <div class="msg-bubble msg-mine" style="max-width: 100%; cursor: default;">
+            <div class="msg-content-row">
+              <span class="msg-text">Так выглядит выбранная тема приложения</span>
+              <span class="msg-time">12:00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ok-msg" id="privacy-saved-msg"></div>
+        <button class="primary-btn" onclick="savePrivacySettings()">Сохранить настройки</button>
       </div>
     </div>
   </section>
@@ -1223,7 +1363,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         </div>
         <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
 
-        <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать всем участникам</button>
         <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
       </div>
 
@@ -1267,13 +1406,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let selectedMessage = null;
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
-    let customization = { msgSize: 'medium' };
+    let customization = { msgSize: 'medium', theme: 'blue' };
     let selectedNewGroupIcon = '👥';
     let editingGroupState = null;
     let selectedEditGroupIcon = '👥';
 
     const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
     const GROUP_ICONS = ['👥', '🔥', '🎮', '🕊️', '🐗', '🚀', '💎', '⚡', '👑', '🎉', '🍕', '🤖'];
+    const ALLOWED_THEMES = ['blue', 'green', 'red', 'yellow'];
     const ALLOWED_AVATARS = [
       '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
       '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -1292,7 +1432,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function isUserMutedInGroup(groupObj, userId) {
       if (!groupObj || !groupObj.isGroup) return false;
       if (String(groupObj.ownerId || groupObj.owner_id || '') === String(userId)) return false;
-      if (groupObj.muted) return true;
       const mutedList = Array.isArray(groupObj.mutedMembers || groupObj.muted_members)
         ? (groupObj.mutedMembers || groupObj.muted_members)
         : [];
@@ -1434,11 +1573,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (raw) {
           const parsed = JSON.parse(raw);
           if (['small', 'medium', 'large'].includes(parsed.msgSize)) customization.msgSize = parsed.msgSize;
+          if (ALLOWED_THEMES.includes(parsed.theme)) customization.theme = parsed.theme;
         }
       } catch (e) {}
     }
 
     function applyCustomizationToUI() {
+      const activeTheme = ALLOWED_THEMES.includes(customization.theme) ? customization.theme : 'blue';
+      document.body.setAttribute('data-theme', activeTheme);
+
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.theme === activeTheme);
+      });
+
       const bubble = document.getElementById('custom-preview-bubble');
       if (bubble) {
         bubble.classList.remove('msg-size-small', 'msg-size-medium', 'msg-size-large');
@@ -1703,8 +1850,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           ownerId: c.ownerId || '',
           members: Array.isArray(c.members) ? c.members : [],
           mutedMembers: Array.isArray(c.mutedMembers) ? c.mutedMembers : [],
-          memberDetails: Array.isArray(c.memberDetails) ? c.memberDetails : [],
-          muted: Boolean(c.muted)
+          memberDetails: Array.isArray(c.memberDetails) ? c.memberDetails : []
         }));
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
@@ -1736,7 +1882,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         const prevCached = readChatsCache(currentUser.id);
         if (data.chats.length === 0 && prevCached.length > 0) {
-          // Если удалили или вышли из единственной группы, синхронизируем пустой список
           if (prevCached.length === 1 && prevCached[0].isGroup) {
             writeChatsCache(currentUser.id, []);
             renderChatsListItems([]);
@@ -1774,7 +1919,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             unreadCount = 0;
             activePeer.avatar = av;
             activePeer.nickname = c.nickname;
-            activePeer.muted = Boolean(c.muted);
             activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
             activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
             activePeer.mutedMembers = Array.isArray(c.mutedMembers) ? c.mutedMembers : [];
@@ -1904,8 +2048,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             ownerId: data.group.owner_id,
             members: data.group.members || [],
             mutedMembers: data.group.muted_members || [],
-            memberDetails: data.group.member_details || [],
-            muted: Boolean(data.group.muted)
+            memberDetails: data.group.member_details || []
           });
         }
       } catch (e) {
@@ -1922,7 +2065,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         editingGroupState.members = serverGroup.members || [];
         editingGroupState.mutedMembers = serverGroup.muted_members || [];
         editingGroupState.memberDetails = serverGroup.member_details || [];
-        editingGroupState.muted = Boolean(serverGroup.muted);
       }
       if (activePeer && activePeer.id === serverGroup.id) {
         activePeer.nickname = serverGroup.name;
@@ -1931,7 +2073,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         activePeer.members = serverGroup.members || [];
         activePeer.mutedMembers = serverGroup.muted_members || [];
         activePeer.memberDetails = serverGroup.member_details || [];
-        activePeer.muted = Boolean(serverGroup.muted);
         document.getElementById('peer-nick').textContent = activePeer.nickname;
         document.getElementById('peer-avatar').textContent = activePeer.avatar;
         applyGroupRoomState();
@@ -1971,7 +2112,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         <button type="button" class="emoji-pick-btn ${ic === selectedEditGroupIcon ? 'selected' : ''}" onclick="pickEditGroupIcon('${ic}', this)">${ic}</button>
       `).join('');
 
-      // Список текущих участников группы с кнопками персонального мута и удаления
       const currentMembersBox = document.getElementById('current-group-members-list');
       const details = Array.isArray(groupObj.memberDetails) && groupObj.memberDetails.length > 0
         ? groupObj.memberDetails
@@ -1989,7 +2129,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <div class="member-check-item">
               <div class="member-check-left">
                 <span style="font-size:20px;">${escapeHtml(m.avatar || '🕊️')}</span>
-                <span>${escapeHtml(m.nickname)} <strong style="color:#38bdf8;">(Владелец)</strong></span>
+                <span>${escapeHtml(m.nickname)} <strong style="color:var(--accent);">(Владелец)</strong></span>
               </div>
             </div>
           `;
@@ -2035,9 +2175,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           </label>
         `).join('');
       }
-
-      const muteBtn = document.getElementById('toggle-mute-btn');
-      muteBtn.textContent = groupObj.muted ? 'Разрешить писать всем участникам' : 'Запретить писать всем участникам';
 
       document.getElementById('group-manage-modal').classList.add('active');
     }
@@ -2159,34 +2296,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           syncGroupDataFromServer(data.group);
           openGroupManageModal(editingGroupState);
           showCopyToast('Участники добавлены');
-          loadChatsList();
-        } else if (data.error) {
-          showCopyToast(data.error);
-        }
-      } catch (e) {}
-    }
-
-    async function toggleGroupMute() {
-      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
-      const nextMuted = !Boolean(editingGroupState.muted);
-      try {
-        const res = await fetch('/api/groups/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            group_id: editingGroupState.id,
-            user_id: currentUser.id,
-            muted: nextMuted
-          })
-        });
-        const data = await res.json();
-        if (res.ok && data.group) {
-          syncGroupDataFromServer(data.group);
-          document.getElementById('toggle-mute-btn').textContent = editingGroupState.muted
-            ? 'Разрешить писать всем участникам'
-            : 'Запретить писать всем участникам';
-          showCopyToast(editingGroupState.muted ? 'Писать участникам запрещено' : 'Писать участникам разрешено');
           loadChatsList();
         } else if (data.error) {
           showCopyToast(data.error);
@@ -2682,6 +2791,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
+      document.getElementById('privacy-saved-msg').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
       selectedAvatar = resolveAvatar(currentUser.id, currentUser.avatar);
 
@@ -2735,11 +2845,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function switchSettingsTab(tab) {
       document.getElementById('stab-main').classList.toggle('active', tab === 'main');
       document.getElementById('stab-custom').classList.toggle('active', tab === 'custom');
+      document.getElementById('stab-privacy').classList.toggle('active', tab === 'privacy');
       document.getElementById('ssec-main').classList.toggle('active', tab === 'main');
       document.getElementById('ssec-custom').classList.toggle('active', tab === 'custom');
+      document.getElementById('ssec-privacy').classList.toggle('active', tab === 'privacy');
     }
 
     function selectMsgSize(size) { customization.msgSize = size; applyCustomizationToUI(); }
+
+    function selectAppTheme(themeName) {
+      if (!ALLOWED_THEMES.includes(themeName)) return;
+      customization.theme = themeName;
+      localStorage.setItem('pigeon_customization', JSON.stringify(customization));
+      applyCustomizationToUI();
+      document.getElementById('privacy-saved-msg').textContent = '';
+    }
+
+    function savePrivacySettings() {
+      localStorage.setItem('pigeon_customization', JSON.stringify(customization));
+      applyCustomizationToUI();
+      document.getElementById('privacy-saved-msg').textContent = 'Настройки темы сохранены!';
+    }
 
     function saveCustomization() {
       localStorage.setItem('pigeon_customization', JSON.stringify(customization));
@@ -2958,7 +3084,6 @@ def create_group():
         'owner_id': creator_id,
         'members': members,
         'muted_members': [],
-        'muted': False,
         'created_at': now_ms
     }
     db['groups'].append(group_obj)
@@ -2986,8 +3111,6 @@ def update_group():
             grp['name'] = clean_name[:32]
     if 'icon' in data and data.get('icon') in GROUP_ICONS:
         grp['icon'] = data['icon']
-    if 'muted' in data:
-        grp['muted'] = bool(data['muted'])
 
     save_db(db)
     return jsonify({'group': serialize_group(grp, users_by_id)})
@@ -3171,7 +3294,6 @@ def get_chats():
             'members': ser_grp['members'],
             'mutedMembers': ser_grp['muted_members'],
             'memberDetails': ser_grp['member_details'],
-            'muted': ser_grp['muted'],
             'lastMessage': last_msg.get('text', '') if last_msg else '',
             'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
             'lastSenderName': last_sender.get('nickname', '') if last_msg else '',
@@ -3237,9 +3359,8 @@ def send_message():
         members = grp.get('members') or []
         if sender_id not in members and grp.get('owner_id') != sender_id:
             return jsonify({'error': 'Вы не состоите в этой группе'}), 403
-        if grp.get('owner_id') != sender_id:
-            if grp.get('muted') or sender_id in (grp.get('muted_members') or []):
-                return jsonify({'error': 'Владелец группы запретил вам писать сообщения'}), 403
+        if grp.get('owner_id') != sender_id and sender_id in (grp.get('muted_members') or []):
+            return jsonify({'error': 'Владелец группы запретил вам писать сообщения'}), 403
     elif users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
         return jsonify({'error': 'Пользователь не найден'}), 404
 
