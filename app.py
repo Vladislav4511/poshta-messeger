@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 import requests
 from flask import Flask, request, jsonify, render_template_string
 
@@ -19,80 +20,82 @@ ALLOWED_AVATARS = [
 ALLOWED_REACTIONS = ['👍', '👎', '😃', '💩', '🐗']
 
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
+_DB_LOCK = threading.RLock()
 _DB_CACHE = {'data': None, 'ts': 0.0}
-_CACHE_TTL_SEC = 0.25
+_CACHE_TTL_SEC = 0.15
 
 
 def use_cloud_db() -> bool:
     return bool(JSONBIN_BIN_ID and JSONBIN_API_KEY)
 
 
+def _clone_db(db_obj):
+    return {
+        'users': list(db_obj.get('users') or []),
+        'messages': list(db_obj.get('messages') or [])
+    }
+
+
 def load_db(force_refresh: bool = False):
-    now = time.monotonic()
-    if not force_refresh and _DB_CACHE['data'] is not None and (now - _DB_CACHE['ts']) < _CACHE_TTL_SEC:
-        return json.loads(json.dumps(_DB_CACHE['data']))
+    with _DB_LOCK:
+        now = time.monotonic()
+        if not force_refresh and _DB_CACHE['data'] is not None and (now - _DB_CACHE['ts']) < _CACHE_TTL_SEC:
+            return _clone_db(_DB_CACHE['data'])
 
-    default_db = {'users': [], 'messages': []}
+        default_db = {'users': [], 'messages': []}
 
-    if use_cloud_db():
-        url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
-        headers = {'X-Master-Key': JSONBIN_API_KEY}
-        try:
-            resp = requests.get(url, headers=headers, timeout=6)
-            resp.raise_for_status()
-            record = resp.json().get('record', {})
+        if use_cloud_db():
+            url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
+            headers = {'X-Master-Key': JSONBIN_API_KEY}
+            try:
+                resp = requests.get(url, headers=headers, timeout=4)
+                resp.raise_for_status()
+                record = resp.json().get('record', {})
 
-            if isinstance(record, list):
-                parsed = {'users': record, 'messages': []}
-            elif isinstance(record, dict):
-                parsed = {
-                    'users': record.get('users') if isinstance(record.get('users'), list) else [],
-                    'messages': record.get('messages') if isinstance(record.get('messages'), list) else []
-                }
-            else:
-                parsed = default_db
-            _DB_CACHE['data'] = json.loads(json.dumps(parsed))
+                if isinstance(record, list):
+                    parsed = {'users': record, 'messages': []}
+                elif isinstance(record, dict):
+                    parsed = {
+                        'users': record.get('users') if isinstance(record.get('users'), list) else [],
+                        'messages': record.get('messages') if isinstance(record.get('messages'), list) else []
+                    }
+                else:
+                    parsed = default_db
+                _DB_CACHE['data'] = _clone_db(parsed)
+                _DB_CACHE['ts'] = time.monotonic()
+                return _clone_db(parsed)
+            except Exception as e:
+                print(f'Ошибка загрузки из JSONBin: {e}')
+                if _DB_CACHE['data'] is not None:
+                    return _clone_db(_DB_CACHE['data'])
+                return default_db
+
+        if not os.path.exists(DB_FILE):
+            with open(DB_FILE, 'w', encoding='utf-8') as f:
+                json.dump(default_db, f, ensure_ascii=False, indent=2)
+            _DB_CACHE['data'] = _clone_db(default_db)
             _DB_CACHE['ts'] = time.monotonic()
-            return parsed
-        except Exception as e:
-            print(f'Ошибка загрузки из JSONBin: {e}')
-            if _DB_CACHE['data'] is not None:
-                return json.loads(json.dumps(_DB_CACHE['data']))
+            return _clone_db(default_db)
+        try:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    parsed = {'users': data, 'messages': []}
+                elif isinstance(data, dict):
+                    parsed = {
+                        'users': data.get('users', []),
+                        'messages': data.get('messages', [])
+                    }
+                else:
+                    parsed = default_db
+                _DB_CACHE['data'] = _clone_db(parsed)
+                _DB_CACHE['ts'] = time.monotonic()
+                return _clone_db(parsed)
+        except Exception:
             return default_db
 
-    if not os.path.exists(DB_FILE):
-        with open(DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump(default_db, f, ensure_ascii=False, indent=2)
-        _DB_CACHE['data'] = json.loads(json.dumps(default_db))
-        _DB_CACHE['ts'] = time.monotonic()
-        return default_db
-    try:
-        with open(DB_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                parsed = {'users': data, 'messages': []}
-            elif isinstance(data, dict):
-                parsed = {
-                    'users': data.get('users', []),
-                    'messages': data.get('messages', [])
-                }
-            else:
-                parsed = default_db
-            _DB_CACHE['data'] = json.loads(json.dumps(parsed))
-            _DB_CACHE['ts'] = time.monotonic()
-            return parsed
-    except Exception:
-        return default_db
 
-
-def save_db(db_data):
-    payload = {
-        'users': db_data.get('users', []),
-        'messages': db_data.get('messages', [])
-    }
-    _DB_CACHE['data'] = json.loads(json.dumps(payload))
-    _DB_CACHE['ts'] = time.monotonic()
-
+def _write_payload_to_storage(payload):
     if use_cloud_db():
         url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}'
         headers = {
@@ -100,7 +103,7 @@ def save_db(db_data):
             'X-Master-Key': JSONBIN_API_KEY
         }
         try:
-            resp = requests.put(url, json=payload, headers=headers, timeout=6)
+            resp = requests.put(url, json=payload, headers=headers, timeout=5)
             resp.raise_for_status()
             return
         except Exception as e:
@@ -108,6 +111,18 @@ def save_db(db_data):
 
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def save_db(db_data, async_cloud: bool = False):
+    payload = _clone_db(db_data)
+    with _DB_LOCK:
+        _DB_CACHE['data'] = _clone_db(payload)
+        _DB_CACHE['ts'] = time.monotonic()
+
+    if async_cloud and use_cloud_db():
+        threading.Thread(target=_write_payload_to_storage, args=(payload,), daemon=True).start()
+    else:
+        _write_payload_to_storage(payload)
 
 
 def is_kabanchik(nickname: str) -> bool:
@@ -1122,6 +1137,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!box) return;
       const distanceFromBottom = box.scrollHeight - box.scrollTop - box.clientHeight;
       if (force || distanceFromBottom < 140) {
+        box.scrollTop = box.scrollHeight;
         requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
       }
     }
@@ -1131,8 +1147,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       setTimeout(() => {
         if (input && input.scrollIntoView) input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         scrollChatToBottom(true);
-      }, 120);
-      setTimeout(() => scrollChatToBottom(true), 280);
+      }, 100);
+      setTimeout(() => scrollChatToBottom(true), 240);
     }
 
     if (window.visualViewport) {
@@ -1326,7 +1342,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
           loadChatsList();
         }
-      }, 800);
+      }, 700);
     }
 
     function updateHeaderUI() {
@@ -1495,7 +1511,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       renderMessages(currentMessagesCache, true);
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 300);
+      chatPollTimer = setInterval(fetchMessages, 200);
     }
 
     function closeChatRoom() {
@@ -1657,6 +1673,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!text) return;
 
       const peerId = activePeer.id;
+      const peerNick = activePeer.nickname;
+      const peerAv = activePeer.avatar || '🕊️';
+      const peerVerified = Boolean(activePeer.verified);
       const replySnapshot = replyingToMessage ? { ...replyingToMessage } : null;
       const nowTs = Date.now();
       const tempId = `msg_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
@@ -1668,12 +1687,30 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       currentMessagesCache = [...currentMessagesCache, newMsg];
       writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
       markChatAsRead(currentUser.id, peerId, nowTs);
+
+      const prevChats = readChatsCache(currentUser.id);
+      const existingIdx = prevChats.findIndex(c => c.id === peerId);
+      const updatedChatItem = {
+        id: peerId,
+        nickname: peerNick,
+        avatar: peerAv,
+        verified: peerVerified,
+        lastMessage: text,
+        lastTimestamp: nowTs,
+        unreadCount: 0
+      };
+      const nextChats = existingIdx >= 0
+        ? [updatedChatItem, ...prevChats.filter((_, i) => i !== existingIdx)]
+        : [updatedChatItem, ...prevChats];
+      writeChatsCache(currentUser.id, nextChats);
+
       renderMessages(currentMessagesCache, true);
 
       fetch('/api/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
+        keepalive: true,
         body: JSON.stringify({ sender_id: currentUser.id, receiver_id: peerId, text, timestamp: nowTs, reply_to: replySnapshot })
       })
         .then(r => r.json())
@@ -1682,7 +1719,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             currentMessagesCache = currentMessagesCache.map(m => m.id === tempId ? { ...data.message, reactions: normalizeReactions(data.message.reactions) } : m);
             writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
           }
-          fetchMessages();
         })
         .catch(() => {});
     }
@@ -1734,6 +1770,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
+        keepalive: true,
         body: JSON.stringify({ message_id: msg.id, user_id: currentUser.id, nickname: currentUser.nickname, emoji })
       }).catch(() => {});
     }
@@ -1801,6 +1838,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
+          keepalive: true,
           body: JSON.stringify({ message_id: targetId, user_id: currentUser.id })
         }).catch(() => {});
       }
@@ -2127,9 +2165,9 @@ def send_message():
     if len(text) > 1000:
         return jsonify({'error': 'Сообщение слишком длинное'}), 400
 
-    db = load_db(force_refresh=True)
+    db = load_db()
     users_by_id = {u['id']: u for u in db['users']}
-    if sender_id not in users_by_id or receiver_id not in users_by_id:
+    if users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
         return jsonify({'error': 'Пользователь не найден'}), 404
 
     now_ms = int(time.time() * 1000)
@@ -2151,7 +2189,7 @@ def send_message():
         'reactions': {}
     }
     db['messages'].append(msg)
-    save_db(db)
+    save_db(db, async_cloud=True)
     return jsonify({'message': msg})
 
 
@@ -2165,7 +2203,7 @@ def toggle_reaction():
     if not msg_id or not user_id or emoji not in ALLOWED_REACTIONS:
         return jsonify({'error': 'Некорректные данные реакции'}), 400
 
-    db = load_db(force_refresh=True)
+    db = load_db()
     users_by_id = {u['id']: u for u in db['users']}
     nickname = (data.get('nickname') or '').strip() or (users_by_id.get(user_id, {}).get('nickname') or 'Пользователь')
 
@@ -2190,7 +2228,7 @@ def toggle_reaction():
         next_reactions.setdefault(emoji, []).append({'user_id': user_id, 'nickname': nickname})
 
     target_msg['reactions'] = next_reactions
-    save_db(db)
+    save_db(db, async_cloud=True)
     return jsonify({'ok': True, 'reactions': next_reactions})
 
 
@@ -2203,7 +2241,7 @@ def delete_message():
     if not msg_id:
         return jsonify({'error': 'Не указан ID сообщения'}), 400
 
-    db = load_db(force_refresh=True)
+    db = load_db()
     before_count = len(db['messages'])
     db['messages'] = [
         m for m in db['messages']
@@ -2212,7 +2250,7 @@ def delete_message():
     if len(db['messages']) == before_count:
         return jsonify({'error': 'Сообщение не найдено'}), 404
 
-    save_db(db)
+    save_db(db, async_cloud=True)
     return jsonify({'ok': True, 'deleted_id': msg_id})
 
 
