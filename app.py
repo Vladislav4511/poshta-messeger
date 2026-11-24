@@ -732,6 +732,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .action-sheet-title { font-size: 14px; font-weight: 700; color: #f8fafc; text-align: center; padding-bottom: 2px; }
 
+    .group-info-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
     .emoji-picker-row {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
@@ -1135,31 +1147,36 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Меню управления группой -->
+  <!-- Меню управления/просмотра группы -->
   <div class="action-sheet-overlay" id="group-manage-modal" onclick="closeGroupManageModal(event)">
     <div class="action-sheet" onclick="event.stopPropagation()">
-      <div class="action-sheet-title" id="group-manage-title">Управление группой</div>
+      <div class="action-sheet-title" id="group-manage-title">Группа</div>
 
-      <div class="input-group">
-        <label>Название группы</label>
-        <input type="text" id="edit-group-name" maxlength="32" />
+      <div class="group-info-card" id="group-readonly-info" style="display:none;"></div>
+
+      <div id="group-owner-controls" style="display:flex; flex-direction:column; gap:10px;">
+        <div class="input-group">
+          <label>Название группы</label>
+          <input type="text" id="edit-group-name" maxlength="32" />
+        </div>
+
+        <div class="input-group">
+          <label>Иконка группы</label>
+          <div class="group-icon-grid" id="edit-group-icon-grid"></div>
+        </div>
+
+        <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
+
+        <div class="input-group">
+          <label>Добавить участников</label>
+          <div class="member-select-list" id="add-group-members-list"></div>
+        </div>
+        <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
+
+        <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать участникам</button>
+        <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
       </div>
 
-      <div class="input-group">
-        <label>Иконка группы</label>
-        <div class="group-icon-grid" id="edit-group-icon-grid"></div>
-      </div>
-
-      <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
-
-      <div class="input-group">
-        <label>Добавить участников</label>
-        <div class="member-select-list" id="add-group-members-list"></div>
-      </div>
-      <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
-
-      <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать участникам</button>
-      <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
       <button type="button" class="sheet-btn cancel" onclick="closeGroupManageModal()">Закрыть</button>
     </div>
   </div>
@@ -1215,6 +1232,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
+
+    function isGroupOwner(groupObj) {
+      if (!groupObj || !currentUser || !currentUser.id) return false;
+      return String(groupObj.ownerId || groupObj.owner_id || '') === String(currentUser.id);
+    }
 
     function makeCheckmarkBadge(bgColor) {
       return `
@@ -1708,10 +1730,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       titleEl.classList.add('peer-title-clickable');
       const memberCount = Array.isArray(activePeer.members) ? activePeer.members.length : 0;
-      subEl.textContent = `Участников: ${memberCount} • Нажми для настройки`;
+      const isOwner = isGroupOwner(activePeer);
+      subEl.textContent = isOwner
+        ? `Участников: ${memberCount} • Нажми для настройки`
+        : `Участников: ${memberCount} • Инфо о группе`;
       subEl.style.display = 'block';
 
-      const isOwner = activePeer.ownerId === currentUser?.id;
       const isMutedForMe = Boolean(activePeer.muted) && !isOwner;
       noticeEl.style.display = isMutedForMe ? 'block' : 'none';
       formEl.style.display = isMutedForMe ? 'none' : 'flex';
@@ -1814,7 +1838,29 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function openGroupManageModal(groupObj) {
       editingGroupState = { ...groupObj };
       selectedEditGroupIcon = groupObj.avatar || '👥';
-      document.getElementById('group-manage-title').textContent = `Группа: ${groupObj.nickname}`;
+      const canEdit = isGroupOwner(groupObj);
+
+      const readonlyEl = document.getElementById('group-readonly-info');
+      const ownerControlsEl = document.getElementById('group-owner-controls');
+
+      if (!canEdit) {
+        document.getElementById('group-manage-title').textContent = `${groupObj.avatar || '👥'} ${groupObj.nickname}`;
+        const memberCount = Array.isArray(groupObj.members) ? groupObj.members.length : 0;
+        readonlyEl.innerHTML = `
+          <div><strong>Название:</strong> ${escapeHtml(groupObj.nickname)}</div>
+          <div><strong>Участников:</strong> ${memberCount}</div>
+          <div><strong>Режим чата:</strong> ${groupObj.muted ? 'Писать может только владелец' : 'Писать могут все участники'}</div>
+          <div style="color:#94a3b8;font-size:12px;">Изменять настройки группы может только её владелец.</div>
+        `;
+        readonlyEl.style.display = 'flex';
+        ownerControlsEl.style.display = 'none';
+        document.getElementById('group-manage-modal').classList.add('active');
+        return;
+      }
+
+      readonlyEl.style.display = 'none';
+      ownerControlsEl.style.display = 'flex';
+      document.getElementById('group-manage-title').textContent = `Управление группой: ${groupObj.nickname}`;
       document.getElementById('edit-group-name').value = groupObj.nickname;
 
       const iconGrid = document.getElementById('edit-group-icon-grid');
@@ -1857,7 +1903,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     async function saveGroupDetails() {
-      if (!editingGroupState || !currentUser) return;
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const newName = document.getElementById('edit-group-name').value.trim();
       if (newName.length < 2) {
         showCopyToast('Название слишком короткое');
@@ -1885,15 +1931,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             document.getElementById('peer-nick').textContent = data.group.name;
             document.getElementById('peer-avatar').textContent = data.group.icon;
           }
-          document.getElementById('group-manage-title').textContent = `Группа: ${data.group.name}`;
+          document.getElementById('group-manage-title').textContent = `Управление группой: ${data.group.name}`;
           showCopyToast('Группа обновлена');
           loadChatsList();
+        } else if (data.error) {
+          showCopyToast(data.error);
         }
       } catch (e) {}
     }
 
     async function addSelectedMembersToGroup() {
-      if (!editingGroupState || !currentUser) return;
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const ids = Array.from(document.querySelectorAll('.add-group-member-cb:checked')).map(cb => cb.value);
       if (ids.length === 0) {
         showCopyToast('Выбери участников');
@@ -1920,12 +1968,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           openGroupManageModal(editingGroupState);
           showCopyToast('Участники добавлены');
           loadChatsList();
+        } else if (data.error) {
+          showCopyToast(data.error);
         }
       } catch (e) {}
     }
 
     async function toggleGroupMute() {
-      if (!editingGroupState || !currentUser) return;
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const nextMuted = !Boolean(editingGroupState.muted);
       try {
         const res = await fetch('/api/groups/update', {
@@ -1950,12 +2000,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             : 'Запретить писать участникам';
           showCopyToast(editingGroupState.muted ? 'Писать участникам запрещено' : 'Писать участникам разрешено');
           loadChatsList();
+        } else if (data.error) {
+          showCopyToast(data.error);
         }
       } catch (e) {}
     }
 
     async function deleteCurrentGroup() {
-      if (!editingGroupState || !currentUser) return;
+      if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const gid = editingGroupState.id;
       document.getElementById('group-manage-modal').classList.remove('active');
       writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
@@ -2181,7 +2233,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function submitInstantMessage() {
       if (!currentUser || !activePeer) return;
-      if (activePeer.isGroup && activePeer.muted && activePeer.ownerId !== currentUser.id) {
+      if (activePeer.isGroup && activePeer.muted && !isGroupOwner(activePeer)) {
         showCopyToast('Писать участникам запрещено');
         return;
       }
@@ -2690,8 +2742,8 @@ def update_group():
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
-    if user_id and grp.get('owner_id') and grp.get('owner_id') != user_id:
-        return jsonify({'error': 'Только создатель может менять группу'}), 403
+    if not user_id or grp.get('owner_id') != user_id:
+        return jsonify({'error': 'Только владелец группы может изменять её настройки'}), 403
 
     if 'name' in data and isinstance(data.get('name'), str):
         clean_name = data['name'].strip()
@@ -2710,12 +2762,15 @@ def update_group():
 def add_group_members():
     data = request.get_json() or {}
     group_id = (data.get('group_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
     raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
 
     db = load_db(force_refresh=True)
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
+    if not user_id or grp.get('owner_id') != user_id:
+        return jsonify({'error': 'Только владелец группы может добавлять участников'}), 403
 
     members = list(grp.get('members') or [])
     for mid in raw_members:
@@ -2731,7 +2786,14 @@ def add_group_members():
 def delete_group():
     data = request.get_json() or {}
     group_id = (data.get('group_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
     db = load_db(force_refresh=True)
+
+    grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+    if not grp:
+        return jsonify({'error': 'Группа не найдена'}), 404
+    if not user_id or grp.get('owner_id') != user_id:
+        return jsonify({'error': 'Только владелец группы может удалить её'}), 403
 
     db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
     db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
