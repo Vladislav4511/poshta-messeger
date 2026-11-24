@@ -357,7 +357,7 @@
 
     .empty-workspace {
       flex: 1;
-      display: flex;
+      display: none;
       flex-direction: column;
       justify-content: center;
       align-items: center;
@@ -1044,6 +1044,7 @@
     let chatPollTimer = null;
     let chatsListPollTimer = null;
     let isFetchingMessages = false;
+    let isFetchingChatsList = false;
     let currentMessagesCache = [];
     let selectedMessage = null;
     let replyingToMessage = null;
@@ -1106,6 +1107,26 @@
       const prev = getLastReadTime(uid, pid);
       const nextVal = Math.max(prev, Number(latestTs) || Date.now());
       localStorage.setItem(getLastReadKey(uid, pid), String(nextVal));
+    }
+
+    function getChatsCacheKey(uid) {
+      return `pigeon_chats_cache_${uid}`;
+    }
+
+    function readChatsCache(uid) {
+      try {
+        const raw = localStorage.getItem(getChatsCacheKey(uid));
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function writeChatsCache(uid, chats) {
+      try {
+        localStorage.setItem(getChatsCacheKey(uid), JSON.stringify(chats));
+      } catch (e) {}
     }
 
     function resolveAvatar(userId, fallbackAvatar) {
@@ -1198,13 +1219,15 @@
     function readLocalDialog(uid, pid) {
       try {
         const raw = localStorage.getItem(getLocalDialogKey(uid, pid));
-        return raw ? JSON.parse(raw) : [];
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
       } catch (e) {
         return [];
       }
     }
 
     function writeLocalDialog(uid, pid, msgs) {
+      if (!Array.isArray(msgs) || msgs.length === 0) return;
       try {
         localStorage.setItem(getLocalDialogKey(uid, pid), JSON.stringify(msgs));
       } catch (e) {}
@@ -1292,6 +1315,11 @@
       updateHeaderUI();
       closeSearchScreen();
       closeSettingsScreen();
+
+      const cachedChats = readChatsCache(currentUser.id);
+      if (cachedChats.length > 0) {
+        renderChatsListItems(cachedChats);
+      }
       loadChatsList();
 
       if (chatsListPollTimer) clearInterval(chatsListPollTimer);
@@ -1299,7 +1327,7 @@
         if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
           loadChatsList();
         }
-      }, 1000);
+      }, 2000);
     }
 
     function updateHeaderUI() {
@@ -1344,8 +1372,10 @@
 
       try {
         const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+        if (!res.ok) return;
         const data = await res.json();
-        const users = data.users || [];
+        if (!Array.isArray(data.users)) return;
+        const users = data.users;
 
         if (users.length === 0) {
           resultsEl.innerHTML = '<div class="search-empty">Пользователи не найдены</div>';
@@ -1368,9 +1398,7 @@
             </div>
           `;
         }).join('');
-      } catch (e) {
-        resultsEl.innerHTML = '<div class="search-empty">Ошибка поиска</div>';
-      }
+      } catch (e) {}
     }
 
     /* --- СПИСОК ЧАТОВ И НЕПРОЧИТАННЫЕ --- */
@@ -1383,25 +1411,63 @@
       ).length;
     }
 
-    async function loadChatsList() {
-      if (!currentUser) return;
+    function renderChatsListItems(chats) {
       const listEl = document.getElementById('chats-list');
       const emptyEl = document.getElementById('empty-chats-placeholder');
+      if (!listEl || !emptyEl) return;
+
+      if (!Array.isArray(chats) || chats.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.style.display = 'flex';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+      listEl.innerHTML = chats.map(c => {
+        const av = c.avatar || resolveAvatar(c.id, null);
+        const safeObj = escapeHtml(JSON.stringify({
+          id: c.id,
+          nickname: c.nickname,
+          avatar: av,
+          verified: c.verified
+        }));
+        const badgeHtml = c.unreadCount > 0
+          ? `<span class="unread-badge">${c.unreadCount}</span>`
+          : '';
+
+        return `
+          <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
+            <div class="avatar-circle">${av}</div>
+            <div class="chat-meta">
+              <div class="nickname-row">
+                <span>${escapeHtml(c.nickname)}</span>
+                ${c.verified ? CHECKMARK_SVG : ''}
+              </div>
+              <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
+            </div>
+            ${badgeHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadChatsList() {
+      if (!currentUser || isFetchingChatsList) return;
+      isFetchingChatsList = true;
 
       try {
         const res = await fetch(`/api/chats?user_id=${encodeURIComponent(currentUser.id)}`, { cache: 'no-store' });
+        if (!res.ok) return;
         const data = await res.json();
-        const chats = data.chats || [];
+        if (!Array.isArray(data.chats)) return;
 
-        if (chats.length === 0) {
-          listEl.innerHTML = '';
-          emptyEl.style.display = 'flex';
+        const prevCached = readChatsCache(currentUser.id);
+        if (data.chats.length === 0 && prevCached.length > 0) {
+          renderChatsListItems(prevCached);
           return;
         }
 
-        emptyEl.style.display = 'none';
-
-        const enriched = await Promise.all(chats.map(async c => {
+        const enriched = await Promise.all(data.chats.map(async c => {
           const av = c.avatar || resolveAvatar(c.id, null);
           if (c.id && c.avatar) {
             localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
@@ -1452,32 +1518,12 @@
           };
         }));
 
-        listEl.innerHTML = enriched.map(c => {
-          const safeObj = escapeHtml(JSON.stringify({
-            id: c.id,
-            nickname: c.nickname,
-            avatar: c.avatar,
-            verified: c.verified
-          }));
-          const badgeHtml = c.unreadCount > 0
-            ? `<span class="unread-badge">${c.unreadCount}</span>`
-            : '';
-
-          return `
-            <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
-              <div class="avatar-circle">${c.avatar}</div>
-              <div class="chat-meta">
-                <div class="nickname-row">
-                  <span>${escapeHtml(c.nickname)}</span>
-                  ${c.verified ? CHECKMARK_SVG : ''}
-                </div>
-                <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
-              </div>
-              ${badgeHtml}
-            </div>
-          `;
-        }).join('');
-      } catch (e) {}
+        writeChatsCache(currentUser.id, enriched);
+        renderChatsListItems(enriched);
+      } catch (e) {
+      } finally {
+        isFetchingChatsList = false;
+      }
     }
 
     function openChatWithUser(peer) {
@@ -1501,7 +1547,7 @@
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 300);
+      chatPollTimer = setInterval(fetchMessages, 700);
     }
 
     function closeChatRoom() {
@@ -1520,6 +1566,10 @@
         chatPollTimer = null;
       }
       if (!document.getElementById('search-view').classList.contains('active')) {
+        const cachedChats = readChatsCache(currentUser?.id);
+        if (cachedChats.length > 0) {
+          renderChatsListItems(cachedChats);
+        }
         loadChatsList();
       }
     }
@@ -1532,7 +1582,9 @@
       const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
 
       if (!messages || messages.length === 0) {
-        box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
+        if (!box.innerHTML.trim()) {
+          box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
+        }
         return;
       }
 
@@ -1616,8 +1668,10 @@
           `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerIdSnapshot)}`,
           { cache: 'no-store' }
         );
+        if (!res.ok) return;
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerIdSnapshot) return;
+        if (!Array.isArray(data.messages)) return;
 
         const nextPeerAvatar = data.peerAvatar || data.peer?.avatar;
         if (nextPeerAvatar) {
@@ -1626,7 +1680,11 @@
           document.getElementById('peer-avatar').textContent = nextPeerAvatar;
         }
 
-        const serverMsgs = Array.isArray(data.messages) ? data.messages : [];
+        const serverMsgs = data.messages;
+        if (serverMsgs.length === 0 && currentMessagesCache.length > 0) {
+          return;
+        }
+
         const localOnlyPending = currentMessagesCache.filter(localMsg => {
           if (!String(localMsg.id).startsWith('msg_')) return false;
           const matchedOnServer = serverMsgs.some(
@@ -1651,7 +1709,8 @@
         if (prevIds !== nextIds) {
           renderMessages(currentMessagesCache, false);
         }
-      } catch (e) {} finally {
+      } catch (e) {
+      } finally {
         isFetchingMessages = false;
       }
     }
