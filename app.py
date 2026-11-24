@@ -11,6 +11,9 @@ DB_FILE = 'users.json'
 JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '').strip()
 JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
 
+RED_BADGE_USER_IDS = {'1795503825490', '1795501800750'}
+BLUE_BADGE_USER_IDS = {'1795447002081'}
+
 ALLOWED_AVATARS = [
     '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
     '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -133,20 +136,31 @@ def save_db(db_data, async_cloud: bool = False):
         _write_payload_to_storage(payload)
 
 
-def is_kabanchik(nickname: str) -> bool:
-    return (nickname or '').strip().lower() == 'кабанчег'
+def get_badge_color_for_user_id(user_id: str):
+    uid = str(user_id or '').strip()
+    if uid in RED_BADGE_USER_IDS:
+        return 'red'
+    if uid in BLUE_BADGE_USER_IDS:
+        return 'blue'
+    return None
 
 
-def has_blue_checkmark(nickname: str) -> bool:
-    return (nickname or '').strip().lower() == 'владислав'
+def has_any_checkmark(user_id: str) -> bool:
+    return get_badge_color_for_user_id(user_id) is not None
 
 
-def has_any_checkmark(nickname: str) -> bool:
-    return has_blue_checkmark(nickname) or is_kabanchik(nickname)
+def enrich_user_badge(user: dict) -> dict:
+    uid = str((user or {}).get('id') or '').strip()
+    badge_color = get_badge_color_for_user_id(uid)
+    out = dict(user)
+    out['badge_color'] = badge_color
+    out['verified'] = badge_color is not None
+    return out
 
 
 def safe_user(user: dict) -> dict:
-    return {k: v for k, v in user.items() if k != 'password'}
+    enriched = enrich_user_badge(user)
+    return {k: v for k, v in enriched.items() if k != 'password'}
 
 
 def make_system_group_message(db: dict, group_id: str, text: str, ts_ms: int = None):
@@ -1510,6 +1524,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let editingGroupState = null;
     let selectedEditGroupIcon = '👥';
 
+    const RED_BADGE_IDS = new Set(['1795503825490', '1795501800750']);
+    const BLUE_BADGE_IDS = new Set(['1795447002081']);
+
     const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
     const GROUP_ICONS = ['👥', '🔥', '🎮', '🕊️', '🐗', '🚀', '💎', '⚡', '👑', '🎉', '🍕', '🤖'];
     const ALLOWED_THEMES = ['blue', 'green', 'red', 'yellow'];
@@ -1567,9 +1584,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function getBadgeHtmlForUser(user) {
       if (!user || user.isGroup) return '';
-      const nick = String(user.nickname || '').trim().toLowerCase();
-      if (nick === 'кабанчег') return makeCheckmarkBadge('#ef4444');
-      if (user.verified || nick === 'владислав') return makeCheckmarkBadge('#38bdf8');
+      const uid = String(user.id || '').trim();
+      if (RED_BADGE_IDS.has(uid) || user.badge_color === 'red') {
+        return makeCheckmarkBadge('#ef4444');
+      }
+      if (BLUE_BADGE_IDS.has(uid) || user.badge_color === 'blue') {
+        return makeCheckmarkBadge('#38bdf8');
+      }
       return '';
     }
 
@@ -1962,6 +1983,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           nickname: c.nickname,
           avatar: av,
           verified: c.verified,
+          badge_color: c.badge_color || null,
           isGroup,
           ownerId: c.ownerId || '',
           members: Array.isArray(c.members) ? c.members : [],
@@ -2035,12 +2057,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             unreadCount = 0;
             activePeer.avatar = av;
             activePeer.nickname = c.nickname;
+            activePeer.badge_color = c.badge_color || null;
             activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
             activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
             activePeer.mutedMembers = Array.isArray(c.mutedMembers) ? c.mutedMembers : [];
             activePeer.memberDetails = Array.isArray(c.memberDetails) ? c.memberDetails : [];
             document.getElementById('peer-avatar').textContent = av;
             document.getElementById('peer-nick').textContent = c.nickname;
+            document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
             applyGroupRoomState();
           }
           return { ...c, avatar: av, lastMessage: nextLastMsg, unreadCount };
@@ -3111,12 +3135,13 @@ def register():
         return jsonify({'error': 'Этот никнейм уже занят!'}), 400
 
     now_ms = int(time.time() * 1000)
+    uid = str(now_ms)
     new_user = {
-        'id': str(now_ms),
+        'id': uid,
         'nickname': nickname,
         'password': password,
         'avatar': '🕊️',
-        'verified': has_any_checkmark(nickname),
+        'verified': has_any_checkmark(uid),
         'lastNickChange': now_ms
     }
     users.append(new_user)
@@ -3141,7 +3166,7 @@ def login():
     if not user:
         return jsonify({'error': 'Неверный никнейм или пароль'}), 401
 
-    user['verified'] = has_any_checkmark(user['nickname'])
+    user['verified'] = has_any_checkmark(user.get('id'))
     return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
 
 
@@ -3153,7 +3178,7 @@ def me():
     user = next((u for u in db['users'] if u['id'] == user_id), None)
     if not user:
         return jsonify({'error': 'Аккаунт не найден'}), 404
-    user['verified'] = has_any_checkmark(user['nickname'])
+    user['verified'] = has_any_checkmark(user.get('id'))
     return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
 
 
@@ -3169,7 +3194,8 @@ def search_users():
             'id': u['id'],
             'nickname': u['nickname'],
             'avatar': u.get('avatar', '🕊️'),
-            'verified': has_any_checkmark(u['nickname'])
+            'verified': has_any_checkmark(u.get('id')),
+            'badge_color': get_badge_color_for_user_id(u.get('id'))
         }
         for u in db['users']
         if (not exclude_id or u['id'] != exclude_id) and u['nickname'].lower().startswith(q)
@@ -3211,9 +3237,9 @@ def update_profile():
             return jsonify({'error': 'Этот никнейм уже занят!'}), 400
 
         user['nickname'] = new_nickname
-        user['verified'] = has_any_checkmark(new_nickname)
         user['lastNickChange'] = now_ms
 
+    user['verified'] = has_any_checkmark(user.get('id'))
     users[user_index] = user
     save_db(db)
     return jsonify({'user': safe_user(user)})
@@ -3468,7 +3494,8 @@ def get_chats():
             'id': partner['id'],
             'nickname': partner['nickname'],
             'avatar': partner.get('avatar', '🕊️'),
-            'verified': has_any_checkmark(partner['nickname']),
+            'verified': has_any_checkmark(partner['id']),
+            'badge_color': get_badge_color_for_user_id(partner['id']),
             'isGroup': False,
             'lastMessage': last_msg.get('text', '') if last_msg else '',
             'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
@@ -3491,6 +3518,7 @@ def get_chats():
             'nickname': ser_grp['name'],
             'avatar': ser_grp['icon'],
             'verified': False,
+            'badge_color': None,
             'isGroup': True,
             'ownerId': ser_grp['owner_id'],
             'members': ser_grp['members'],
