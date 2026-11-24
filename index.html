@@ -989,6 +989,8 @@
     let currentUser = null;
     let activePeer = null;
     let chatPollTimer = null;
+    let chatsListPollTimer = null;
+    let isFetchingMessages = false;
     let currentMessagesCache = [];
     let selectedMessage = null;
     let replyingToMessage = null;
@@ -1013,22 +1015,31 @@
     `;
 
     function resolveAvatar(userId, fallbackAvatar) {
+      if (currentUser && userId && currentUser.id === userId && currentUser.avatar) {
+        return currentUser.avatar;
+      }
+      if (fallbackAvatar) {
+        if (userId) {
+          localStorage.setItem(`pigeon_avatar_${userId}`, fallbackAvatar);
+        }
+        return fallbackAvatar;
+      }
       if (userId) {
         const localAv = localStorage.getItem(`pigeon_avatar_${userId}`);
         if (localAv) return localAv;
-        if (currentUser && currentUser.id === userId && currentUser.avatar) {
-          return currentUser.avatar;
-        }
       }
-      return fallbackAvatar || '🕊️';
+      return '🕊️';
     }
 
-    function scrollChatToBottom() {
+    function scrollChatToBottom(force = false) {
       const box = document.getElementById('chat-messages');
       if (!box) return;
-      requestAnimationFrame(() => {
-        box.scrollTop = box.scrollHeight;
-      });
+      const distanceFromBottom = box.scrollHeight - box.scrollTop - box.clientHeight;
+      if (force || distanceFromBottom < 120) {
+        requestAnimationFrame(() => {
+          box.scrollTop = box.scrollHeight;
+        });
+      }
     }
 
     function handleComposerFocus() {
@@ -1037,21 +1048,28 @@
         if (input && input.scrollIntoView) {
           input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
-        scrollChatToBottom();
+        scrollChatToBottom(true);
       }, 150);
-      setTimeout(scrollChatToBottom, 350);
+      setTimeout(() => scrollChatToBottom(true), 350);
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
         if (activePeer) {
-          scrollChatToBottom();
+          scrollChatToBottom(true);
         }
       });
     }
     window.addEventListener('resize', () => {
       if (activePeer) {
-        scrollChatToBottom();
+        scrollChatToBottom(true);
+      }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && currentUser) {
+        if (activePeer) fetchMessages();
+        loadChatsList();
       }
     });
 
@@ -1118,7 +1136,7 @@
             const data = await res.json();
             if (res.ok && data.user) {
               const localAv = localStorage.getItem(`pigeon_avatar_${data.user.id}`);
-              if (localAv) data.user.avatar = localAv;
+              if (localAv && !data.user.avatar) data.user.avatar = localAv;
               enterApp(data.user);
               return;
             }
@@ -1162,7 +1180,7 @@
 
         localStorage.setItem('pigeon_user_id', data.user.id);
         const localAv = localStorage.getItem(`pigeon_avatar_${data.user.id}`);
-        if (localAv) data.user.avatar = localAv;
+        if (localAv && !data.user.avatar) data.user.avatar = localAv;
         enterApp(data.user);
       } catch (err) {
         errorEl.textContent = 'Нет связи с сервером';
@@ -1172,6 +1190,7 @@
     function enterApp(user) {
       currentUser = user;
       selectedAvatar = resolveAvatar(user.id, user.avatar);
+      currentUser.avatar = selectedAvatar;
 
       document.getElementById('auth-screen').classList.remove('active');
       document.getElementById('main-screen').classList.add('active');
@@ -1180,6 +1199,13 @@
       closeSearchScreen();
       closeSettingsScreen();
       loadChatsList();
+
+      if (chatsListPollTimer) clearInterval(chatsListPollTimer);
+      chatsListPollTimer = setInterval(() => {
+        if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
+          loadChatsList();
+        }
+      }, 1500);
     }
 
     function updateHeaderUI() {
@@ -1272,7 +1298,14 @@
 
         emptyEl.style.display = 'none';
         listEl.innerHTML = chats.map(c => {
-          const av = resolveAvatar(c.id, c.avatar);
+          const av = c.avatar || resolveAvatar(c.id, null);
+          if (c.id && c.avatar) {
+            localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
+          }
+          if (activePeer && activePeer.id === c.id) {
+            activePeer.avatar = av;
+            document.getElementById('peer-avatar').textContent = av;
+          }
           const safeObj = escapeHtml(JSON.stringify({ ...c, avatar: av }));
           return `
             <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
@@ -1293,7 +1326,7 @@
     function openChatWithUser(peer) {
       activePeer = {
         ...peer,
-        avatar: resolveAvatar(peer.id, peer.avatar)
+        avatar: peer.avatar || resolveAvatar(peer.id, null)
       };
       cancelReply();
       applyCustomizationToUI();
@@ -1304,12 +1337,11 @@
       document.getElementById('chat-room-view').classList.add('active');
 
       currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id);
-      renderMessages(currentMessagesCache);
-      scrollChatToBottom();
+      renderMessages(currentMessagesCache, true);
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 1000);
+      chatPollTimer = setInterval(fetchMessages, 500);
     }
 
     function closeChatRoom() {
@@ -1328,9 +1360,12 @@
       }
     }
 
-    function renderMessages(messages) {
+    function renderMessages(messages, forceScroll = false) {
       const box = document.getElementById('chat-messages');
       if (!box) return;
+
+      const prevScrollTop = box.scrollTop;
+      const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
 
       if (!messages || messages.length === 0) {
         box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
@@ -1380,11 +1415,16 @@
         });
       });
 
-      scrollChatToBottom();
+      if (forceScroll || wasNearBottom) {
+        scrollChatToBottom(true);
+      } else {
+        box.scrollTop = prevScrollTop;
+      }
     }
 
     async function fetchMessages() {
-      if (!currentUser || !activePeer) return;
+      if (!currentUser || !activePeer || isFetchingMessages) return;
+      isFetchingMessages = true;
       const peerIdSnapshot = activePeer.id;
 
       try {
@@ -1395,22 +1435,38 @@
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerIdSnapshot) return;
 
-        if (data.peerAvatar) {
-          activePeer.avatar = data.peerAvatar;
-          document.getElementById('peer-avatar').textContent = resolveAvatar(peerIdSnapshot, data.peerAvatar);
+        const nextPeerAvatar = data.peerAvatar || data.peer?.avatar;
+        if (nextPeerAvatar) {
+          activePeer.avatar = nextPeerAvatar;
+          localStorage.setItem(`pigeon_avatar_${peerIdSnapshot}`, nextPeerAvatar);
+          document.getElementById('peer-avatar').textContent = nextPeerAvatar;
         }
 
         const serverMsgs = Array.isArray(data.messages) ? data.messages : [];
-        const localOnlyPending = currentMessagesCache.filter(
-          localMsg => String(localMsg.id).startsWith('msg_') &&
-          !serverMsgs.some(srv => srv.text === localMsg.text && Math.abs((srv.timestamp || 0) - (localMsg.timestamp || 0)) < 15000)
-        );
+        const localOnlyPending = currentMessagesCache.filter(localMsg => {
+          if (!String(localMsg.id).startsWith('msg_')) return false;
+          const matchedOnServer = serverMsgs.some(
+            srv => srv.sender_id === localMsg.sender_id &&
+              srv.text === localMsg.text &&
+              Math.abs((srv.timestamp || 0) - (localMsg.timestamp || 0)) < 60000
+          );
+          if (matchedOnServer) return false;
+          return (Date.now() - (localMsg.timestamp || 0)) < 120000;
+        });
 
         const merged = [...serverMsgs, ...localOnlyPending];
+        const prevIds = currentMessagesCache.map(x => `${x.id}:${x.text}`).join('|');
+        const nextIds = merged.map(x => `${x.id}:${x.text}`).join('|');
+
         currentMessagesCache = merged;
         writeLocalDialog(currentUser.id, peerIdSnapshot, currentMessagesCache);
-        renderMessages(currentMessagesCache);
-      } catch (e) {}
+
+        if (prevIds !== nextIds) {
+          renderMessages(currentMessagesCache, false);
+        }
+      } catch (e) {} finally {
+        isFetchingMessages = false;
+      }
     }
 
     function handleSendPointerDown(event) {
@@ -1448,7 +1504,7 @@
 
       currentMessagesCache = [...currentMessagesCache, newMsg];
       writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
-      renderMessages(currentMessagesCache);
+      renderMessages(currentMessagesCache, true);
 
       fetch('/api/messages/send', {
         method: 'POST',
@@ -1463,7 +1519,7 @@
       })
         .then(r => r.json())
         .then(data => {
-          if (data.message) {
+          if (data.message && data.message.id) {
             currentMessagesCache = currentMessagesCache.map(m =>
               m.id === tempId ? data.message : m
             );
@@ -1562,7 +1618,7 @@
 
       currentMessagesCache = currentMessagesCache.filter(m => m.id !== targetId);
       writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
-      renderMessages(currentMessagesCache);
+      renderMessages(currentMessagesCache, false);
 
       if (!String(targetId).startsWith('msg_')) {
         fetch('/api/messages/delete', {
@@ -1615,7 +1671,6 @@
           currentUser.avatar = emoji;
           localStorage.setItem(`pigeon_avatar_${currentUser.id}`, emoji);
           updateHeaderUI();
-          loadChatsList();
 
           fetch('/api/update-profile', {
             method: 'POST',
@@ -1626,7 +1681,9 @@
               newNickname: currentUser.nickname,
               newAvatar: emoji
             })
-          }).catch(() => {});
+          })
+            .then(() => loadChatsList())
+            .catch(() => {});
         };
         grid.appendChild(btn);
       });
@@ -1658,7 +1715,7 @@
       applyCustomizationToUI();
       document.getElementById('custom-saved-msg').textContent = 'Кастомизация сохранена!';
       if (activePeer) {
-        renderMessages(currentMessagesCache);
+        renderMessages(currentMessagesCache, false);
       }
     }
 
@@ -1706,6 +1763,10 @@
     function logout() {
       localStorage.removeItem('pigeon_user_id');
       currentUser = null;
+      if (chatsListPollTimer) {
+        clearInterval(chatsListPollTimer);
+        chatsListPollTimer = null;
+      }
       closeChatRoom();
       closeSettingsScreen();
       closeSearchScreen();
