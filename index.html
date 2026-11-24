@@ -19,9 +19,6 @@
       height: 100%;
       width: 100%;
       overflow: hidden;
-      display: flex;
-      justify-content: center;
-      align-items: center;
     }
 
     /* --- ЗАСТАВКА --- */
@@ -88,7 +85,7 @@
 
     /* --- ЭКРАН ВХОДА / РЕГИСТРАЦИИ --- */
     #auth-screen {
-      width: 100%;
+      width: calc(100% - 32px);
       max-width: 380px;
       padding: 24px;
       display: none;
@@ -97,7 +94,10 @@
       background: #1e293b;
       border-radius: 20px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-      margin: 16px;
+      margin: 16px auto;
+      position: relative;
+      top: 50%;
+      transform: translateY(-50%);
     }
 
     #auth-screen.active {
@@ -161,7 +161,7 @@
       border: 1px solid #334155;
       background: #0f172a;
       color: #fff;
-      font-size: 15px;
+      font-size: 16px;
       outline: none;
     }
 
@@ -361,7 +361,6 @@
     #search-view {
       position: fixed;
       inset: 0;
-      height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
@@ -436,15 +435,13 @@
     /* --- ЭКРАН ЛИЧНОГО ЧАТА --- */
     #chat-room-view {
       position: fixed;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100%;
       height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
       z-index: 40;
-      overflow: hidden;
     }
 
     #chat-room-view.active {
@@ -651,7 +648,6 @@
     #settings-screen {
       position: fixed;
       inset: 0;
-      height: 100%;
       background: #0f172a;
       display: none;
       flex-direction: column;
@@ -970,7 +966,6 @@
         maxlength="1000"
         autocomplete="off"
         onfocus="handleComposerFocus()"
-        onblur="handleComposerBlur()"
       />
       <button type="submit" class="send-btn" onpointerdown="handleSendPointerDown(event)">➤</button>
     </form>
@@ -1025,55 +1020,29 @@
       });
     }
 
-    // Ровно подгоняем экран чата под видимую область visualViewport (без лишних костылей)
-    function syncChatRoomToVisualViewport() {
-      const chatRoom = document.getElementById('chat-room-view');
-      if (!chatRoom || !chatRoom.classList.contains('active')) return;
-
-      if (window.visualViewport) {
-        const vv = window.visualViewport;
-        chatRoom.style.top = `${Math.round(vv.offsetTop)}px`;
-        chatRoom.style.left = `${Math.round(vv.offsetLeft)}px`;
-        chatRoom.style.width = `${Math.round(vv.width)}px`;
-        chatRoom.style.height = `${Math.round(vv.height)}px`;
-      } else {
-        chatRoom.style.top = '0px';
-        chatRoom.style.left = '0px';
-        chatRoom.style.width = '100%';
-        chatRoom.style.height = '100%';
-      }
-
-      scrollChatToBottom();
-    }
-
-    function resetChatRoomPosition() {
-      const chatRoom = document.getElementById('chat-room-view');
-      if (!chatRoom) return;
-      chatRoom.style.top = '0px';
-      chatRoom.style.left = '0px';
-      chatRoom.style.width = '100%';
-      chatRoom.style.height = '100%';
-    }
-
     function handleComposerFocus() {
-      syncChatRoomToVisualViewport();
-      setTimeout(syncChatRoomToVisualViewport, 120);
-      setTimeout(syncChatRoomToVisualViewport, 300);
-    }
-
-    function handleComposerBlur() {
+      const input = document.getElementById('chat-message-input');
       setTimeout(() => {
-        if (document.activeElement !== document.getElementById('chat-message-input')) {
-          syncChatRoomToVisualViewport();
+        if (input && input.scrollIntoView) {
+          input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
-      }, 120);
+        scrollChatToBottom();
+      }, 150);
+      setTimeout(scrollChatToBottom, 350);
     }
 
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', syncChatRoomToVisualViewport);
-      window.visualViewport.addEventListener('scroll', syncChatRoomToVisualViewport);
+      window.visualViewport.addEventListener('resize', () => {
+        if (activePeer) {
+          scrollChatToBottom();
+        }
+      });
     }
-    window.addEventListener('resize', syncChatRoomToVisualViewport);
+    window.addEventListener('resize', () => {
+      if (activePeer) {
+        scrollChatToBottom();
+      }
+    });
 
     function loadCustomization() {
       try {
@@ -1098,22 +1067,6 @@
         btn.classList.toggle('selected', btn.dataset.size === customization.msgSize);
       });
     }
-
-    function requestFullscreenSafe() {
-      const el = document.documentElement;
-      if (document.fullscreenElement || document.webkitFullscreenElement) return;
-      try {
-        if (el.requestFullscreen) {
-          el.requestFullscreen().catch(() => {});
-        } else if (el.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen();
-        }
-      } catch (e) {}
-    }
-
-    document.addEventListener('pointerdown', () => {
-      requestFullscreenSafe();
-    }, { passive: true });
 
     function getLocalDialogKey(uid, pid) {
       return `pigeon_dialog_${uid}_${pid}`;
@@ -1324,10 +1277,10 @@
       document.getElementById('peer-nick').textContent = peer.nickname;
       document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
       document.getElementById('chat-room-view').classList.add('active');
-      syncChatRoomToVisualViewport();
 
       currentMessagesCache = readLocalDialog(currentUser.id, peer.id);
       renderMessages(currentMessagesCache);
+      scrollChatToBottom();
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
@@ -1337,7 +1290,6 @@
     function closeChatRoom() {
       activePeer = null;
       cancelReply();
-      resetChatRoomPosition();
       const chatRoom = document.getElementById('chat-room-view');
       if (chatRoom) {
         chatRoom.classList.remove('active');
@@ -1723,4 +1675,4 @@
     }
   </script>
 </body>
-</html>
+  </html>
