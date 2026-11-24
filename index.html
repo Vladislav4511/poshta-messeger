@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Голубиная почта</title>
   <style>
     * {
@@ -435,7 +435,6 @@
 
     /* --- ЭКРАН ЛИЧНОГО ЧАТА --- */
     #chat-room-view {
-      --kb-pad: 0px;
       position: fixed;
       top: 0;
       left: 0;
@@ -446,7 +445,6 @@
       flex-direction: column;
       z-index: 40;
       overflow: hidden;
-      padding-bottom: var(--kb-pad);
     }
 
     #chat-room-view.active {
@@ -1000,7 +998,6 @@
     let selectedMessage = null;
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
-    let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
     let customization = {
       msgSize: 'medium'
@@ -1028,52 +1025,55 @@
       });
     }
 
-    function syncKeyboardLayout() {
+    // Ровно подгоняем экран чата под видимую область visualViewport (без лишних костылей)
+    function syncChatRoomToVisualViewport() {
       const chatRoom = document.getElementById('chat-room-view');
       if (!chatRoom || !chatRoom.classList.contains('active')) return;
 
-      let pad = 0;
       if (window.visualViewport) {
         const vv = window.visualViewport;
-        const shrunk = Math.max(0, Math.round(initialViewportHeight - vv.height - vv.offsetTop));
-        if (shrunk > 60) {
-          pad = shrunk;
-        }
+        chatRoom.style.top = `${Math.round(vv.offsetTop)}px`;
+        chatRoom.style.left = `${Math.round(vv.offsetLeft)}px`;
+        chatRoom.style.width = `${Math.round(vv.width)}px`;
+        chatRoom.style.height = `${Math.round(vv.height)}px`;
+      } else {
+        chatRoom.style.top = '0px';
+        chatRoom.style.left = '0px';
+        chatRoom.style.width = '100%';
+        chatRoom.style.height = '100%';
       }
 
-      chatRoom.style.setProperty('--kb-pad', `${pad}px`);
       scrollChatToBottom();
     }
 
+    function resetChatRoomPosition() {
+      const chatRoom = document.getElementById('chat-room-view');
+      if (!chatRoom) return;
+      chatRoom.style.top = '0px';
+      chatRoom.style.left = '0px';
+      chatRoom.style.width = '100%';
+      chatRoom.style.height = '100%';
+    }
+
     function handleComposerFocus() {
-      syncKeyboardLayout();
-      setTimeout(scrollChatToBottom, 120);
-      setTimeout(scrollChatToBottom, 300);
+      syncChatRoomToVisualViewport();
+      setTimeout(syncChatRoomToVisualViewport, 120);
+      setTimeout(syncChatRoomToVisualViewport, 300);
     }
 
     function handleComposerBlur() {
       setTimeout(() => {
         if (document.activeElement !== document.getElementById('chat-message-input')) {
-          const chatRoom = document.getElementById('chat-room-view');
-          if (chatRoom) {
-            chatRoom.style.setProperty('--kb-pad', '0px');
-          }
-          scrollChatToBottom();
+          syncChatRoomToVisualViewport();
         }
       }, 120);
     }
 
-    window.addEventListener('resize', () => {
-      if (document.activeElement !== document.getElementById('chat-message-input')) {
-        initialViewportHeight = Math.max(initialViewportHeight, window.innerHeight);
-      }
-      syncKeyboardLayout();
-    });
-
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', syncKeyboardLayout);
-      window.visualViewport.addEventListener('scroll', syncKeyboardLayout);
+      window.visualViewport.addEventListener('resize', syncChatRoomToVisualViewport);
+      window.visualViewport.addEventListener('scroll', syncChatRoomToVisualViewport);
     }
+    window.addEventListener('resize', syncChatRoomToVisualViewport);
 
     function loadCustomization() {
       try {
@@ -1135,7 +1135,6 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-      initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       loadCustomization();
       applyCustomizationToUI();
 
@@ -1325,10 +1324,10 @@
       document.getElementById('peer-nick').textContent = peer.nickname;
       document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
       document.getElementById('chat-room-view').classList.add('active');
+      syncChatRoomToVisualViewport();
 
       currentMessagesCache = readLocalDialog(currentUser.id, peer.id);
       renderMessages(currentMessagesCache);
-      syncKeyboardLayout();
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
@@ -1338,9 +1337,9 @@
     function closeChatRoom() {
       activePeer = null;
       cancelReply();
+      resetChatRoomPosition();
       const chatRoom = document.getElementById('chat-room-view');
       if (chatRoom) {
-        chatRoom.style.setProperty('--kb-pad', '0px');
         chatRoom.classList.remove('active');
       }
       if (chatPollTimer) {
