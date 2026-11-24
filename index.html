@@ -340,6 +340,21 @@
       margin-top: 2px;
     }
 
+    .unread-badge {
+      min-width: 24px;
+      height: 24px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: #475569;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
     .empty-workspace {
       flex: 1;
       display: flex;
@@ -461,6 +476,19 @@
       background: #0f172a;
     }
 
+    .day-divider {
+      align-self: center;
+      margin: 6px 0;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
     .msg-bubble {
       max-width: 80%;
       padding: 10px 14px;
@@ -470,10 +498,32 @@
       cursor: pointer;
       transition: transform 0.1s;
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
     }
 
     .msg-bubble:active {
       transform: scale(0.98);
+    }
+
+    .msg-content-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .msg-text {
+      flex: 1;
+    }
+
+    .msg-time {
+      font-size: 11px;
+      line-height: 1;
+      opacity: 0.75;
+      white-space: nowrap;
+      align-self: flex-end;
+      margin-top: 2px;
     }
 
     .msg-size-small { font-size: 13px; }
@@ -928,7 +978,10 @@
         <div class="preview-box">
           <div class="preview-label">Предпросмотр сообщения:</div>
           <div class="msg-bubble msg-mine" id="custom-preview-bubble" style="max-width: 100%; cursor: default;">
-            Привет! Голубиная почта летит быстро
+            <div class="msg-content-row">
+              <span class="msg-text">Привет! Голубиная почта летит быстро</span>
+              <span class="msg-time">12:00</span>
+            </div>
           </div>
         </div>
 
@@ -1006,6 +1059,11 @@
       '🍕', '⚡', '👑', '🎨', '🍐'
     ];
 
+    const MONTHS_RU = [
+      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+    ];
+
     const CHECKMARK_SVG = `
       <span class="verified-badge" title="Подтверждённый аккаунт">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="#38bdf8">
@@ -1013,6 +1071,42 @@
         </svg>
       </span>
     `;
+
+    function formatMsgTime(ts) {
+      const d = new Date(Number(ts) || Date.now());
+      if (Number.isNaN(d.getTime())) return '00:00';
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+
+    function getDayKey(ts) {
+      const d = new Date(Number(ts) || Date.now());
+      if (Number.isNaN(d.getTime())) return '';
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    }
+
+    function formatDayLabel(ts) {
+      const d = new Date(Number(ts) || Date.now());
+      if (Number.isNaN(d.getTime())) return '';
+      return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`;
+    }
+
+    function getLastReadKey(uid, pid) {
+      return `pigeon_last_read_${uid}_${pid}`;
+    }
+
+    function getLastReadTime(uid, pid) {
+      const raw = localStorage.getItem(getLastReadKey(uid, pid));
+      return raw ? Number(raw) || 0 : 0;
+    }
+
+    function markChatAsRead(uid, pid, latestTs = Date.now()) {
+      if (!uid || !pid) return;
+      const prev = getLastReadTime(uid, pid);
+      const nextVal = Math.max(prev, Number(latestTs) || Date.now());
+      localStorage.setItem(getLastReadKey(uid, pid), String(nextVal));
+    }
 
     function resolveAvatar(userId, fallbackAvatar) {
       if (currentUser && userId && currentUser.id === userId && currentUser.avatar) {
@@ -1205,7 +1299,7 @@
         if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
           loadChatsList();
         }
-      }, 1500);
+      }, 1000);
     }
 
     function updateHeaderUI() {
@@ -1279,7 +1373,16 @@
       }
     }
 
-    /* --- СПИСОК ЧАТОВ И ЛИЧНЫЙ ДИАЛОГ --- */
+    /* --- СПИСОК ЧАТОВ И НЕПРОЧИТАННЫЕ --- */
+    function computeUnreadCount(peerId, messages) {
+      if (!currentUser || !Array.isArray(messages) || messages.length === 0) return 0;
+      const lastRead = getLastReadTime(currentUser.id, peerId);
+      return messages.filter(m =>
+        m.sender_id !== currentUser.id &&
+        (Number(m.timestamp) || 0) > lastRead
+      ).length;
+    }
+
     async function loadChatsList() {
       if (!currentUser) return;
       const listEl = document.getElementById('chats-list');
@@ -1297,19 +1400,72 @@
         }
 
         emptyEl.style.display = 'none';
-        listEl.innerHTML = chats.map(c => {
+
+        const enriched = await Promise.all(chats.map(async c => {
           const av = c.avatar || resolveAvatar(c.id, null);
           if (c.id && c.avatar) {
             localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
           }
+
+          let unreadCount = typeof c.unreadCount === 'number' ? c.unreadCount : 0;
+          let lastMessageText = c.lastMessage || 'Нет сообщений';
+          let lastTs = Number(c.lastTimestamp) || 0;
+
+          try {
+            const mRes = await fetch(
+              `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(c.id)}`,
+              { cache: 'no-store' }
+            );
+            if (mRes.ok) {
+              const mData = await mRes.json();
+              if (Array.isArray(mData.messages) && mData.messages.length > 0) {
+                writeLocalDialog(currentUser.id, c.id, mData.messages);
+                const lastM = mData.messages[mData.messages.length - 1];
+                lastMessageText = lastM.text || lastMessageText;
+                lastTs = Number(lastM.timestamp) || lastTs;
+                unreadCount = computeUnreadCount(c.id, mData.messages);
+              }
+            }
+          } catch (e) {
+            const localMsgs = readLocalDialog(currentUser.id, c.id);
+            if (localMsgs.length > 0) {
+              const lastM = localMsgs[localMsgs.length - 1];
+              lastMessageText = lastM.text || lastMessageText;
+              lastTs = Number(lastM.timestamp) || lastTs;
+              unreadCount = computeUnreadCount(c.id, localMsgs);
+            }
+          }
+
           if (activePeer && activePeer.id === c.id) {
+            unreadCount = 0;
+            markChatAsRead(currentUser.id, c.id, Math.max(Date.now(), lastTs));
             activePeer.avatar = av;
             document.getElementById('peer-avatar').textContent = av;
           }
-          const safeObj = escapeHtml(JSON.stringify({ ...c, avatar: av }));
+
+          return {
+            ...c,
+            avatar: av,
+            lastMessage: lastMessageText,
+            lastTimestamp: lastTs,
+            unreadCount
+          };
+        }));
+
+        listEl.innerHTML = enriched.map(c => {
+          const safeObj = escapeHtml(JSON.stringify({
+            id: c.id,
+            nickname: c.nickname,
+            avatar: c.avatar,
+            verified: c.verified
+          }));
+          const badgeHtml = c.unreadCount > 0
+            ? `<span class="unread-badge">${c.unreadCount}</span>`
+            : '';
+
           return `
             <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
-              <div class="avatar-circle">${av}</div>
+              <div class="avatar-circle">${c.avatar}</div>
               <div class="chat-meta">
                 <div class="nickname-row">
                   <span>${escapeHtml(c.nickname)}</span>
@@ -1317,6 +1473,7 @@
                 </div>
                 <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
               </div>
+              ${badgeHtml}
             </div>
           `;
         }).join('');
@@ -1337,14 +1494,21 @@
       document.getElementById('chat-room-view').classList.add('active');
 
       currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id);
+      const latestLocalTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
+      markChatAsRead(currentUser.id, activePeer.id, latestLocalTs);
+
       renderMessages(currentMessagesCache, true);
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 500);
+      chatPollTimer = setInterval(fetchMessages, 300);
     }
 
     function closeChatRoom() {
+      if (currentUser && activePeer) {
+        const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
+        markChatAsRead(currentUser.id, activePeer.id, latestTs);
+      }
       activePeer = null;
       cancelReply();
       const chatRoom = document.getElementById('chat-room-view');
@@ -1372,19 +1536,39 @@
         return;
       }
 
+      const uniqueDayKeys = new Set(messages.map(m => getDayKey(m.timestamp)).filter(Boolean));
+      const hasMultipleDays = uniqueDayKeys.size > 1;
+      const firstDayKey = messages.length > 0 ? getDayKey(messages[0].timestamp) : '';
+
+      let lastRenderedDayKey = firstDayKey;
       const sizeClass = `msg-size-${customization.msgSize}`;
-      box.innerHTML = messages.map(m => {
+      const htmlParts = [];
+
+      messages.forEach(m => {
+        const msgDayKey = getDayKey(m.timestamp);
+        if (hasMultipleDays && msgDayKey && msgDayKey !== lastRenderedDayKey) {
+          htmlParts.push(`<div class="day-divider">${escapeHtml(formatDayLabel(m.timestamp))}</div>`);
+          lastRenderedDayKey = msgDayKey;
+        }
+
         const isMine = m.sender_id === currentUser.id;
         const replyHtml = m.reply_to && m.reply_to.text
           ? `<div class="msg-reply-quote">↩️ ${escapeHtml(m.reply_to.sender_nick || 'Сообщение')}: ${escapeHtml(m.reply_to.text)}</div>`
           : '';
+        const timeStr = formatMsgTime(m.timestamp);
 
-        return `
+        htmlParts.push(`
           <div class="msg-bubble ${sizeClass} ${isMine ? 'msg-mine' : 'msg-theirs'}" data-msg-id="${escapeHtml(m.id)}">
-            ${replyHtml}<span>${escapeHtml(m.text)}</span>
+            ${replyHtml}
+            <div class="msg-content-row">
+              <span class="msg-text">${escapeHtml(m.text)}</span>
+              <span class="msg-time">${escapeHtml(timeStr)}</span>
+            </div>
           </div>
-        `;
-      }).join('');
+        `);
+      });
+
+      box.innerHTML = htmlParts.join('');
 
       box.querySelectorAll('.msg-bubble').forEach(el => {
         const msgId = el.getAttribute('data-msg-id');
@@ -1455,11 +1639,14 @@
         });
 
         const merged = [...serverMsgs, ...localOnlyPending];
-        const prevIds = currentMessagesCache.map(x => `${x.id}:${x.text}`).join('|');
-        const nextIds = merged.map(x => `${x.id}:${x.text}`).join('|');
+        const prevIds = currentMessagesCache.map(x => `${x.id}:${x.text}:${x.timestamp || 0}`).join('|');
+        const nextIds = merged.map(x => `${x.id}:${x.text}:${x.timestamp || 0}`).join('|');
 
         currentMessagesCache = merged;
         writeLocalDialog(currentUser.id, peerIdSnapshot, currentMessagesCache);
+
+        const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
+        markChatAsRead(currentUser.id, peerIdSnapshot, latestTs);
 
         if (prevIds !== nextIds) {
           renderMessages(currentMessagesCache, false);
@@ -1488,14 +1675,15 @@
 
       const peerId = activePeer.id;
       const replySnapshot = replyingToMessage ? { ...replyingToMessage } : null;
-      const tempId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const nowTs = Date.now();
+      const tempId = `msg_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
 
       const newMsg = {
         id: tempId,
         sender_id: currentUser.id,
         receiver_id: peerId,
         text,
-        timestamp: Date.now(),
+        timestamp: nowTs,
         reply_to: replySnapshot
       };
 
@@ -1504,6 +1692,7 @@
 
       currentMessagesCache = [...currentMessagesCache, newMsg];
       writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+      markChatAsRead(currentUser.id, peerId, nowTs);
       renderMessages(currentMessagesCache, true);
 
       fetch('/api/messages/send', {
@@ -1514,6 +1703,7 @@
           sender_id: currentUser.id,
           receiver_id: peerId,
           text,
+          timestamp: nowTs,
           reply_to: replySnapshot
         })
       })
@@ -1785,4 +1975,4 @@
     }
   </script>
 </body>
-</html>
+  </html>
