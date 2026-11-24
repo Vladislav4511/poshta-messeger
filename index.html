@@ -293,6 +293,7 @@
     /* --- ВИД СПИСКА ЧАТОВ --- */
     #chats-view {
       flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       overflow-y: auto;
@@ -446,7 +447,6 @@
       z-index: 40;
       overflow: hidden;
       padding-bottom: var(--kb-pad);
-      transition: padding-bottom 0.1s ease-out;
     }
 
     #chat-room-view.active {
@@ -455,6 +455,7 @@
 
     .chat-messages {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 14px 16px;
       display: flex;
@@ -462,6 +463,7 @@
       gap: 8px;
       user-select: none;
       -webkit-user-select: none;
+      background: #0f172a;
     }
 
     .msg-bubble {
@@ -472,6 +474,7 @@
       word-break: break-word;
       cursor: pointer;
       transition: transform 0.1s;
+      flex-shrink: 0;
     }
 
     .msg-bubble:active {
@@ -998,7 +1001,6 @@
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
     let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    let viewportShrankOnFocus = false;
 
     let customization = {
       msgSize: 'medium'
@@ -1018,63 +1020,47 @@
       </span>
     `;
 
+    function scrollChatToBottom() {
+      const box = document.getElementById('chat-messages');
+      if (!box) return;
+      requestAnimationFrame(() => {
+        box.scrollTop = box.scrollHeight;
+      });
+    }
+
     function syncKeyboardLayout() {
       const chatRoom = document.getElementById('chat-room-view');
-      const input = document.getElementById('chat-message-input');
       if (!chatRoom || !chatRoom.classList.contains('active')) return;
 
-      const isFocused = document.activeElement === input;
       let pad = 0;
-
       if (window.visualViewport) {
         const vv = window.visualViewport;
-        const deltaFromBase = Math.max(0, Math.round(initialViewportHeight - vv.height - vv.offsetTop));
-        if (deltaFromBase > 70) {
-          viewportShrankOnFocus = true;
-          pad = deltaFromBase;
-        } else if (isFocused && !viewportShrankOnFocus) {
-          pad = 220;
-        }
-      } else {
-        const deltaWin = Math.max(0, Math.round(initialViewportHeight - window.innerHeight));
-        if (deltaWin > 70) {
-          viewportShrankOnFocus = true;
-          pad = deltaWin;
-        } else if (isFocused && !viewportShrankOnFocus) {
-          pad = 220;
+        const shrunk = Math.max(0, Math.round(initialViewportHeight - vv.height - vv.offsetTop));
+        if (shrunk > 60) {
+          pad = shrunk;
         }
       }
 
       chatRoom.style.setProperty('--kb-pad', `${pad}px`);
-
-      const box = document.getElementById('chat-messages');
-      if (box) {
-        box.scrollTop = box.scrollHeight;
-      }
+      scrollChatToBottom();
     }
 
     function handleComposerFocus() {
-      viewportShrankOnFocus = false;
       syncKeyboardLayout();
-      setTimeout(syncKeyboardLayout, 120);
-      setTimeout(syncKeyboardLayout, 320);
+      setTimeout(scrollChatToBottom, 120);
+      setTimeout(scrollChatToBottom, 300);
     }
 
     function handleComposerBlur() {
       setTimeout(() => {
         if (document.activeElement !== document.getElementById('chat-message-input')) {
-          viewportShrankOnFocus = false;
           const chatRoom = document.getElementById('chat-room-view');
           if (chatRoom) {
             chatRoom.style.setProperty('--kb-pad', '0px');
           }
-          if (window.visualViewport) {
-            initialViewportHeight = Math.max(initialViewportHeight, window.visualViewport.height);
-          } else {
-            initialViewportHeight = Math.max(initialViewportHeight, window.innerHeight);
-          }
+          scrollChatToBottom();
         }
-      }, 150);
+      }, 120);
     }
 
     window.addEventListener('resize', () => {
@@ -1339,10 +1325,10 @@
       document.getElementById('peer-nick').textContent = peer.nickname;
       document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
       document.getElementById('chat-room-view').classList.add('active');
-      syncKeyboardLayout();
 
       currentMessagesCache = readLocalDialog(currentUser.id, peer.id);
       renderMessages(currentMessagesCache);
+      syncKeyboardLayout();
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
@@ -1368,6 +1354,8 @@
 
     function renderMessages(messages) {
       const box = document.getElementById('chat-messages');
+      if (!box) return;
+
       if (!messages || messages.length === 0) {
         box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
         return;
@@ -1416,7 +1404,7 @@
         });
       });
 
-      box.scrollTop = box.scrollHeight;
+      scrollChatToBottom();
     }
 
     async function fetchMessages() {
@@ -1639,7 +1627,6 @@
           document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
           btn.classList.add('selected');
 
-          // Сразу меняем аватарку в интерфейсе при выборе
           currentUser.avatar = emoji;
           localStorage.setItem(`pigeon_avatar_${currentUser.id}`, emoji);
           updateHeaderUI();
@@ -1684,7 +1671,6 @@
       errorEl.textContent = '';
       okEl.textContent = '';
 
-      // Моментально применяем выбранную аватарку на клиенте
       currentUser.avatar = selectedAvatar;
       localStorage.setItem(`pigeon_avatar_${currentUser.id}`, selectedAvatar);
       updateHeaderUI();
