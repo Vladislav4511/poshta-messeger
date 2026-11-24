@@ -1068,6 +1068,34 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .settings-section.active { display: flex; }
+
+    .id-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--bg-main);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+    }
+
+    .id-box-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      color: #e2e8f0;
+      user-select: all;
+      word-break: break-all;
+    }
+
+    .id-copy-tag {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
     .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 6px; }
 
     .avatar-option {
@@ -1249,6 +1277,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     <div class="settings-content">
       <div class="settings-section active" id="ssec-main">
+        <div class="input-group">
+          <label>Ваш ID</label>
+          <div class="id-box" onclick="copyCurrentUserId()" title="Нажми, чтобы скопировать ID">
+            <span class="id-box-value" id="settings-user-id">—</span>
+            <span class="id-copy-tag">Копировать</span>
+          </div>
+        </div>
+
         <div class="input-group">
           <label>Выбери аватарку (17 эмодзи)</label>
           <div class="avatar-grid" id="avatar-grid"></div>
@@ -1827,6 +1863,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('header-avatar').textContent = resolveAvatar(currentUser.id, currentUser.avatar);
       document.getElementById('header-nick').textContent = currentUser.nickname;
       document.getElementById('header-verified').innerHTML = getBadgeHtmlForUser(currentUser);
+    }
+
+    function copyCurrentUserId() {
+      if (!currentUser || !currentUser.id) return;
+      const idText = String(currentUser.id);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(idText).then(() => showCopyToast('ID скопирован')).catch(() => fallbackCopy(idText));
+      } else {
+        fallbackCopy(idText);
+      }
     }
 
     function openSearchScreen() {
@@ -2851,7 +2897,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         ta.select();
         document.execCommand('copy');
         document.body.removeChild(ta);
-        showCopyToast('Сообщение скопировано');
+        showCopyToast('Скопировано');
       } catch (e) { showCopyToast('Не удалось скопировать'); }
     }
 
@@ -2913,6 +2959,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
+      document.getElementById('settings-user-id').textContent = currentUser.id || '—';
       document.getElementById('settings-nick').value = currentUser.nickname;
       selectedAvatar = resolveAvatar(currentUser.id, currentUser.avatar);
 
@@ -3009,6 +3056,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (!res.ok) { errorEl.textContent = data.error || 'Ошибка сохранения никнейма на сервере'; return; }
         currentUser = { ...data.user, avatar: selectedAvatar };
+        document.getElementById('settings-user-id').textContent = currentUser.id || '—';
         updateHeaderUI();
         loadChatsList();
       } catch (err) { errorEl.textContent = 'Аватарка сохранена локально, но нет связи с сервером'; }
