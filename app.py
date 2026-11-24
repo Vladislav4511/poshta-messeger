@@ -17,6 +17,11 @@ ALLOWED_AVATARS = [
     '🍕', '⚡', '👑', '🎨', '🍐'
 ]
 
+GROUP_ICONS = [
+    '👥', '🔥', '🎮', '🕊️', '🐗', '🚀',
+    '💎', '⚡', '👑', '🎉', '🍕', '🤖'
+]
+
 ALLOWED_REACTIONS = ['👍', '👎', '😃', '💩', '🐗']
 
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -32,7 +37,8 @@ def use_cloud_db() -> bool:
 def _clone_db(db_obj):
     return {
         'users': list(db_obj.get('users') or []),
-        'messages': list(db_obj.get('messages') or [])
+        'messages': list(db_obj.get('messages') or []),
+        'groups': list(db_obj.get('groups') or [])
     }
 
 
@@ -42,7 +48,7 @@ def load_db(force_refresh: bool = False):
         if not force_refresh and _DB_CACHE['data'] is not None and (now - _DB_CACHE['ts']) < _CACHE_TTL_SEC:
             return _clone_db(_DB_CACHE['data'])
 
-        default_db = {'users': [], 'messages': []}
+        default_db = {'users': [], 'messages': [], 'groups': []}
 
         if use_cloud_db():
             url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
@@ -53,11 +59,12 @@ def load_db(force_refresh: bool = False):
                 record = resp.json().get('record', {})
 
                 if isinstance(record, list):
-                    parsed = {'users': record, 'messages': []}
+                    parsed = {'users': record, 'messages': [], 'groups': []}
                 elif isinstance(record, dict):
                     parsed = {
                         'users': record.get('users') if isinstance(record.get('users'), list) else [],
-                        'messages': record.get('messages') if isinstance(record.get('messages'), list) else []
+                        'messages': record.get('messages') if isinstance(record.get('messages'), list) else [],
+                        'groups': record.get('groups') if isinstance(record.get('groups'), list) else []
                     }
                 else:
                     parsed = default_db
@@ -80,11 +87,12 @@ def load_db(force_refresh: bool = False):
             with open(DB_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    parsed = {'users': data, 'messages': []}
+                    parsed = {'users': data, 'messages': [], 'groups': []}
                 elif isinstance(data, dict):
                     parsed = {
                         'users': data.get('users', []),
-                        'messages': data.get('messages', [])
+                        'messages': data.get('messages', []),
+                        'groups': data.get('groups', [])
                     }
                 else:
                     parsed = default_db
@@ -310,6 +318,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       height: 100%;
       flex-direction: column;
       background: #0f172a;
+      position: relative;
     }
 
     #main-screen.active { display: flex; }
@@ -341,6 +350,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
+    .peer-title-clickable { cursor: pointer; }
+    .peer-sub { font-size: 11px; color: #94a3b8; font-weight: 500; }
 
     .verified-circle {
       display: inline-flex;
@@ -376,7 +387,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       overflow-y: auto;
-      padding: 12px 16px;
+      padding: 12px 16px 88px;
       gap: 8px;
     }
 
@@ -420,6 +431,28 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       justify-content: center;
       flex-shrink: 0;
     }
+
+    .fab-create-group {
+      position: fixed;
+      right: 20px;
+      bottom: 22px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: none;
+      background: #22c55e;
+      color: #ffffff;
+      font-size: 24px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(34, 197, 94, 0.35);
+      cursor: pointer;
+      z-index: 25;
+    }
+
+    .fab-create-group.visible { display: flex; }
+    .fab-create-group:active { transform: scale(0.95); background: #16a34a; }
 
     .empty-workspace {
       flex: 1;
@@ -523,6 +556,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .msg-wrapper.mine { align-self: flex-end; align-items: flex-end; }
     .msg-wrapper.theirs { align-self: flex-start; align-items: flex-start; }
 
+    .msg-sender-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 3px;
+      padding-left: 4px;
+    }
+
     .msg-bubble {
       width: fit-content;
       max-width: 100%;
@@ -623,6 +664,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       flex-shrink: 0;
     }
 
+    .muted-chat-notice {
+      padding: 13px 16px;
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      text-align: center;
+      font-size: 13px;
+      color: #fca5a5;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
     .send-btn {
       padding: 12px 16px;
       border-radius: 12px;
@@ -645,7 +697,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       padding: 8px 16px;
       border-radius: 12px;
       font-size: 13px;
-      z-index: 80;
+      z-index: 90;
       display: none;
     }
 
@@ -666,7 +718,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .action-sheet {
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
+      max-height: 85vh;
+      overflow-y: auto;
       background: #1e293b;
       border-radius: 20px;
       padding: 16px;
@@ -676,7 +730,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       border: 1px solid #334155;
     }
 
-    .action-sheet-title { font-size: 13px; color: #94a3b8; text-align: center; padding-bottom: 2px; }
+    .action-sheet-title { font-size: 14px; font-weight: 700; color: #f8fafc; text-align: center; padding-bottom: 2px; }
 
     .emoji-picker-row {
       display: grid;
@@ -688,19 +742,55 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       border: 1px solid #334155;
     }
 
+    .group-icon-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      background: #0f172a;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid #334155;
+    }
+
     .emoji-pick-btn {
-      height: 44px;
+      height: 42px;
       border-radius: 10px;
       border: 2px solid transparent;
       background: #1e293b;
-      font-size: 22px;
+      font-size: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
     }
 
-    .emoji-pick-btn.selected { border-color: #38bdf8; background: #1e3a5f; }
+    .emoji-pick-btn.selected { border-color: #22c55e; background: #14532d; }
+
+    .member-select-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 190px;
+      overflow-y: auto;
+      background: #0f172a;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+
+    .member-check-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #1e293b;
+      cursor: pointer;
+    }
+
+    .member-check-left { display: flex; align-items: center; gap: 8px; }
+    .member-check-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: #22c55e; }
 
     .sheet-reactions-summary {
       background: #0f172a;
@@ -721,16 +811,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .sheet-btn {
       width: 100%;
-      padding: 13px;
+      padding: 12px;
       border-radius: 12px;
       border: none;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       cursor: pointer;
       background: #334155;
       color: #f8fafc;
     }
 
+    .sheet-btn.green { background: #22c55e; color: #0f172a; font-weight: 700; }
     .sheet-btn.reply { background: #0284c7; color: #ffffff; }
     .sheet-btn.copy { background: #1e3a5f; color: #bae6fd; }
     .sheet-btn.delete { background: #7f1d1d; color: #fecaca; }
@@ -907,9 +998,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div id="chats-list"></div>
       <div class="empty-workspace" id="empty-chats-placeholder">
         <span>🕊️</span>
-        <p>Пока чатов нет.<br>Нажми на лупу сверху, чтобы найти пользователя и написать ему.</p>
+        <p>Пока чатов нет.<br>Нажми на лупу сверху или на зелёный карандаш справа внизу.</p>
       </div>
     </section>
+
+    <button type="button" class="fab-create-group" id="fab-create-group" onclick="openCreateGroupModal()" title="Создать группу">✏️</button>
   </div>
 
   <section id="search-view">
@@ -986,9 +1079,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="user-badge">
         <button class="back-btn" onclick="closeChatRoom()">←</button>
         <div class="avatar-circle" id="peer-avatar">🕊️</div>
-        <div class="nickname-row">
-          <span id="peer-nick">Пользователь</span>
-          <span id="peer-verified"></span>
+        <div id="peer-header-info" onclick="handlePeerHeaderClick()">
+          <div class="nickname-row">
+            <span id="peer-nick">Пользователь</span>
+            <span id="peer-verified"></span>
+          </div>
+          <div class="peer-sub" id="peer-sub" style="display:none;"></div>
         </div>
       </div>
     </header>
@@ -998,6 +1094,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="reply-banner" id="reply-banner">
       <div class="reply-banner-text" id="reply-banner-text">Ответ на сообщение</div>
       <button type="button" class="reply-cancel-btn" onclick="cancelReply()">&times;</button>
+    </div>
+
+    <div class="muted-chat-notice" id="muted-chat-notice" style="display:none;">
+      🔇 Владелец группы запретил участникам писать сообщения
     </div>
 
     <form class="chat-input-bar" id="chat-form" onsubmit="sendChatMessage(event)">
@@ -1011,6 +1111,57 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       />
       <button type="submit" class="send-btn" onpointerdown="handleSendPointerDown(event)">➤</button>
     </form>
+  </div>
+
+  <!-- Модалка создания группы -->
+  <div class="action-sheet-overlay" id="create-group-modal" onclick="closeCreateGroupModal(event)">
+    <div class="action-sheet" onclick="event.stopPropagation()">
+      <div class="action-sheet-title">Создать группу</div>
+      <div class="input-group">
+        <label>Название группы</label>
+        <input type="text" id="new-group-name" placeholder="Например: Сквад" maxlength="32" />
+      </div>
+      <div class="input-group">
+        <label>Иконка группы</label>
+        <div class="group-icon-grid" id="create-group-icon-grid"></div>
+      </div>
+      <div class="input-group">
+        <label>Участники (с кем уже переписывались)</label>
+        <div class="member-select-list" id="create-group-members"></div>
+      </div>
+      <div class="error-msg" id="create-group-error"></div>
+      <button type="button" class="sheet-btn green" onclick="submitCreateGroup()">Создать группу</button>
+      <button type="button" class="sheet-btn cancel" onclick="closeCreateGroupModal()">Отмена</button>
+    </div>
+  </div>
+
+  <!-- Меню управления группой -->
+  <div class="action-sheet-overlay" id="group-manage-modal" onclick="closeGroupManageModal(event)">
+    <div class="action-sheet" onclick="event.stopPropagation()">
+      <div class="action-sheet-title" id="group-manage-title">Управление группой</div>
+
+      <div class="input-group">
+        <label>Название группы</label>
+        <input type="text" id="edit-group-name" maxlength="32" />
+      </div>
+
+      <div class="input-group">
+        <label>Иконка группы</label>
+        <div class="group-icon-grid" id="edit-group-icon-grid"></div>
+      </div>
+
+      <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
+
+      <div class="input-group">
+        <label>Добавить участников</label>
+        <div class="member-select-list" id="add-group-members-list"></div>
+      </div>
+      <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
+
+      <button type="button" class="sheet-btn" id="toggle-mute-btn" onclick="toggleGroupMute()">Запретить писать участникам</button>
+      <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
+      <button type="button" class="sheet-btn cancel" onclick="closeGroupManageModal()">Закрыть</button>
+    </div>
   </div>
 
   <div class="action-sheet-overlay" id="msg-action-sheet" onclick="closeMessageMenu(event)">
@@ -1049,8 +1200,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
     let customization = { msgSize: 'medium' };
+    let selectedNewGroupIcon = '👥';
+    let editingGroupState = null;
+    let selectedEditGroupIcon = '👥';
 
     const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
+    const GROUP_ICONS = ['👥', '🔥', '🎮', '🕊️', '🐗', '🚀', '💎', '⚡', '👑', '🎉', '🍕', '🤖'];
     const ALLOWED_AVATARS = [
       '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
       '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -1072,7 +1227,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function getBadgeHtmlForUser(user) {
-      if (!user) return '';
+      if (!user || user.isGroup) return '';
       const nick = String(user.nickname || '').trim().toLowerCase();
       if (nick === 'кабанчег') return makeCheckmarkBadge('#ef4444');
       if (user.verified || nick === 'владислав') return makeCheckmarkBadge('#38bdf8');
@@ -1131,6 +1286,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (localAv) return localAv;
       }
       return '🕊️';
+    }
+
+    function updateFabVisibility() {
+      const fab = document.getElementById('fab-create-group');
+      if (!fab) return;
+      const show = Boolean(
+        currentUser &&
+        !activePeer &&
+        !document.getElementById('search-view').classList.contains('active') &&
+        !document.getElementById('settings-screen').classList.contains('active')
+      );
+      fab.classList.toggle('visible', show);
     }
 
     function scrollChatToBottom(force = false) {
@@ -1333,6 +1500,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       updateHeaderUI();
       closeSearchScreen();
       closeSettingsScreen();
+      updateFabVisibility();
 
       const cachedChats = readChatsCache(currentUser.id);
       if (cachedChats.length > 0) renderChatsListItems(cachedChats);
@@ -1357,6 +1525,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('main-top-bar').classList.add('hidden');
       document.getElementById('chats-view').classList.add('hidden');
       document.getElementById('search-view').classList.add('active');
+      updateFabVisibility();
       const input = document.getElementById('search-input');
       input.value = '';
       document.getElementById('search-results').innerHTML = '<div class="search-empty">Начни вводить имя пользователя</div>';
@@ -1367,6 +1536,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('search-view').classList.remove('active');
       document.getElementById('main-top-bar').classList.remove('hidden');
       document.getElementById('chats-view').classList.remove('hidden');
+      updateFabVisibility();
       if (currentUser) loadChatsList();
     }
 
@@ -1390,7 +1560,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         }
         resultsEl.innerHTML = users.map(u => {
           const av = resolveAvatar(u.id, u.avatar);
-          const safeObj = escapeHtml(JSON.stringify({ ...u, avatar: av }));
+          const safeObj = escapeHtml(JSON.stringify({ ...u, avatar: av, isGroup: false }));
           return `
             <div class="search-user-item" onclick='openChatWithUser(${safeObj})'>
               <div class="search-user-left">
@@ -1413,6 +1583,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return messages.filter(m => m.sender_id !== currentUser.id && (Number(m.timestamp) || 0) > lastRead).length;
     }
 
+    function getDirectPartnersForGroup() {
+      const cached = readChatsCache(currentUser?.id || '');
+      return cached.filter(c => !c.isGroup && c.id !== currentUser?.id);
+    }
+
     function renderChatsListItems(chats) {
       const listEl = document.getElementById('chats-list');
       const emptyEl = document.getElementById('empty-chats-placeholder');
@@ -1426,19 +1601,30 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       emptyEl.style.display = 'none';
       listEl.innerHTML = chats.map(c => {
-        const av = c.avatar || resolveAvatar(c.id, null);
-        const safeObj = escapeHtml(JSON.stringify({ id: c.id, nickname: c.nickname, avatar: av, verified: c.verified }));
+        const isGroup = Boolean(c.isGroup);
+        const av = isGroup ? (c.avatar || '👥') : (c.avatar || resolveAvatar(c.id, null));
+        const safeObj = escapeHtml(JSON.stringify({
+          id: c.id,
+          nickname: c.nickname,
+          avatar: av,
+          verified: c.verified,
+          isGroup,
+          ownerId: c.ownerId || '',
+          members: Array.isArray(c.members) ? c.members : [],
+          muted: Boolean(c.muted)
+        }));
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
+        const prefix = isGroup && c.lastSenderName && c.lastMessage ? `${c.lastSenderName}: ` : '';
         return `
           <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
-            <div class="avatar-circle">${av}</div>
+            <div class="avatar-circle">${escapeHtml(av)}</div>
             <div class="chat-meta">
               <div class="nickname-row">
                 <span>${escapeHtml(c.nickname)}</span>
                 ${getBadgeHtmlForUser(c)}
               </div>
-              <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
+              <div class="chat-last-msg">${escapeHtml(prefix + (c.lastMessage || (isGroup ? 'Группа создана' : 'Нет сообщений')))}</div>
             </div>
             ${badgeHtml}
           </div>
@@ -1463,8 +1649,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const prevMap = new Map(prevCached.map(item => [item.id, item]));
 
         const normalized = data.chats.map(c => {
-          const av = c.avatar || resolveAvatar(c.id, null);
-          if (c.id && c.avatar) localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
+          const isGroup = Boolean(c.isGroup);
+          const av = isGroup ? (c.avatar || '👥') : (c.avatar || resolveAvatar(c.id, null));
+          if (!isGroup && c.id && c.avatar) localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
 
           const prevItem = prevMap.get(c.id);
           const localMsgs = readLocalDialog(currentUser.id, c.id);
@@ -1472,7 +1659,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           const prevUnread = prevItem && typeof prevItem.unreadCount === 'number' ? prevItem.unreadCount : 0;
 
           let unreadCount = Math.max(typeof c.unreadCount === 'number' ? c.unreadCount : 0, localUnread);
-          const nextLastMsg = c.lastMessage || (localMsgs.length > 0 ? localMsgs[localMsgs.length - 1].text : 'Нет сообщений');
+          const nextLastMsg = c.lastMessage || (localMsgs.length > 0 ? localMsgs[localMsgs.length - 1].text : (isGroup ? 'Группа создана' : 'Нет сообщений'));
           const prevLastMsg = prevItem ? prevItem.lastMessage : null;
           const sentByMeRecently = c.lastSenderId === currentUser.id || (localMsgs.length > 0 && localMsgs[localMsgs.length - 1].sender_id === currentUser.id);
 
@@ -1487,7 +1674,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           if (activePeer && activePeer.id === c.id) {
             unreadCount = 0;
             activePeer.avatar = av;
+            activePeer.nickname = c.nickname;
+            activePeer.muted = Boolean(c.muted);
+            activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
+            activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
             document.getElementById('peer-avatar').textContent = av;
+            document.getElementById('peer-nick').textContent = c.nickname;
+            applyGroupRoomState();
           }
           return { ...c, avatar: av, lastMessage: nextLastMsg, unreadCount };
         });
@@ -1498,10 +1691,302 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       finally { isFetchingChatsList = false; }
     }
 
+    function applyGroupRoomState() {
+      const isGroup = Boolean(activePeer && activePeer.isGroup);
+      const subEl = document.getElementById('peer-sub');
+      const titleEl = document.getElementById('peer-header-info');
+      const noticeEl = document.getElementById('muted-chat-notice');
+      const formEl = document.getElementById('chat-form');
+
+      if (!isGroup) {
+        subEl.style.display = 'none';
+        titleEl.classList.remove('peer-title-clickable');
+        noticeEl.style.display = 'none';
+        formEl.style.display = 'flex';
+        return;
+      }
+
+      titleEl.classList.add('peer-title-clickable');
+      const memberCount = Array.isArray(activePeer.members) ? activePeer.members.length : 0;
+      subEl.textContent = `Участников: ${memberCount} • Нажми для настройки`;
+      subEl.style.display = 'block';
+
+      const isOwner = activePeer.ownerId === currentUser?.id;
+      const isMutedForMe = Boolean(activePeer.muted) && !isOwner;
+      noticeEl.style.display = isMutedForMe ? 'block' : 'none';
+      formEl.style.display = isMutedForMe ? 'none' : 'flex';
+    }
+
+    function handlePeerHeaderClick() {
+      if (!activePeer || !activePeer.isGroup) return;
+      openGroupManageModal(activePeer);
+    }
+
+    function openCreateGroupModal() {
+      if (!currentUser) return;
+      selectedNewGroupIcon = '👥';
+      document.getElementById('new-group-name').value = '';
+      document.getElementById('create-group-error').textContent = '';
+
+      const iconGrid = document.getElementById('create-group-icon-grid');
+      iconGrid.innerHTML = GROUP_ICONS.map(ic => `
+        <button type="button" class="emoji-pick-btn ${ic === selectedNewGroupIcon ? 'selected' : ''}" onclick="pickNewGroupIcon('${ic}', this)">${ic}</button>
+      `).join('');
+
+      const partners = getDirectPartnersForGroup();
+      const membersBox = document.getElementById('create-group-members');
+      if (partners.length === 0) {
+        membersBox.innerHTML = '<div class="search-empty">Сначала начни переписку хотя бы с одним пользователем</div>';
+      } else {
+        membersBox.innerHTML = partners.map(p => `
+          <label class="member-check-item">
+            <div class="member-check-left">
+              <span style="font-size:20px;">${escapeHtml(p.avatar || '🕊️')}</span>
+              <span>${escapeHtml(p.nickname)}</span>
+            </div>
+            <input type="checkbox" class="new-group-member-cb" value="${escapeHtml(p.id)}" />
+          </label>
+        `).join('');
+      }
+
+      document.getElementById('create-group-modal').classList.add('active');
+    }
+
+    function pickNewGroupIcon(ic, btnEl) {
+      selectedNewGroupIcon = ic;
+      document.querySelectorAll('#create-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
+      if (btnEl) btnEl.classList.add('selected');
+    }
+
+    function closeCreateGroupModal(event) {
+      if (event && event.target !== event.currentTarget) return;
+      document.getElementById('create-group-modal').classList.remove('active');
+    }
+
+    async function submitCreateGroup() {
+      if (!currentUser) return;
+      const name = document.getElementById('new-group-name').value.trim();
+      const errEl = document.getElementById('create-group-error');
+      errEl.textContent = '';
+
+      if (name.length < 2) {
+        errEl.textContent = 'Введи название группы (от 2 символов)';
+        return;
+      }
+
+      const memberIds = Array.from(document.querySelectorAll('.new-group-member-cb:checked')).map(cb => cb.value);
+
+      try {
+        const res = await fetch('/api/groups/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            creator_id: currentUser.id,
+            name,
+            icon: selectedNewGroupIcon,
+            member_ids: memberIds
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Не удалось создать группу';
+          return;
+        }
+        document.getElementById('create-group-modal').classList.remove('active');
+        await loadChatsList();
+        if (data.group) {
+          openChatWithUser({
+            id: data.group.id,
+            nickname: data.group.name,
+            avatar: data.group.icon,
+            isGroup: true,
+            ownerId: data.group.owner_id,
+            members: data.group.members || [],
+            muted: Boolean(data.group.muted)
+          });
+        }
+      } catch (e) {
+        errEl.textContent = 'Нет связи с сервером';
+      }
+    }
+
+    function openGroupManageModal(groupObj) {
+      editingGroupState = { ...groupObj };
+      selectedEditGroupIcon = groupObj.avatar || '👥';
+      document.getElementById('group-manage-title').textContent = `Группа: ${groupObj.nickname}`;
+      document.getElementById('edit-group-name').value = groupObj.nickname;
+
+      const iconGrid = document.getElementById('edit-group-icon-grid');
+      iconGrid.innerHTML = GROUP_ICONS.map(ic => `
+        <button type="button" class="emoji-pick-btn ${ic === selectedEditGroupIcon ? 'selected' : ''}" onclick="pickEditGroupIcon('${ic}', this)">${ic}</button>
+      `).join('');
+
+      const currentMembers = Array.isArray(groupObj.members) ? groupObj.members : [];
+      const candidates = getDirectPartnersForGroup().filter(p => !currentMembers.includes(p.id));
+      const addListEl = document.getElementById('add-group-members-list');
+      if (candidates.length === 0) {
+        addListEl.innerHTML = '<div class="search-empty">Все собеседники уже в группе</div>';
+      } else {
+        addListEl.innerHTML = candidates.map(p => `
+          <label class="member-check-item">
+            <div class="member-check-left">
+              <span style="font-size:20px;">${escapeHtml(p.avatar || '🕊️')}</span>
+              <span>${escapeHtml(p.nickname)}</span>
+            </div>
+            <input type="checkbox" class="add-group-member-cb" value="${escapeHtml(p.id)}" />
+          </label>
+        `).join('');
+      }
+
+      const muteBtn = document.getElementById('toggle-mute-btn');
+      muteBtn.textContent = groupObj.muted ? 'Разрешить писать участникам' : 'Запретить писать участникам';
+
+      document.getElementById('group-manage-modal').classList.add('active');
+    }
+
+    function pickEditGroupIcon(ic, btnEl) {
+      selectedEditGroupIcon = ic;
+      document.querySelectorAll('#edit-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
+      if (btnEl) btnEl.classList.add('selected');
+    }
+
+    function closeGroupManageModal(event) {
+      if (event && event.target !== event.currentTarget) return;
+      document.getElementById('group-manage-modal').classList.remove('active');
+    }
+
+    async function saveGroupDetails() {
+      if (!editingGroupState || !currentUser) return;
+      const newName = document.getElementById('edit-group-name').value.trim();
+      if (newName.length < 2) {
+        showCopyToast('Название слишком короткое');
+        return;
+      }
+      try {
+        const res = await fetch('/api/groups/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            group_id: editingGroupState.id,
+            user_id: currentUser.id,
+            name: newName,
+            icon: selectedEditGroupIcon
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.group) {
+          editingGroupState.nickname = data.group.name;
+          editingGroupState.avatar = data.group.icon;
+          if (activePeer && activePeer.id === data.group.id) {
+            activePeer.nickname = data.group.name;
+            activePeer.avatar = data.group.icon;
+            document.getElementById('peer-nick').textContent = data.group.name;
+            document.getElementById('peer-avatar').textContent = data.group.icon;
+          }
+          document.getElementById('group-manage-title').textContent = `Группа: ${data.group.name}`;
+          showCopyToast('Группа обновлена');
+          loadChatsList();
+        }
+      } catch (e) {}
+    }
+
+    async function addSelectedMembersToGroup() {
+      if (!editingGroupState || !currentUser) return;
+      const ids = Array.from(document.querySelectorAll('.add-group-member-cb:checked')).map(cb => cb.value);
+      if (ids.length === 0) {
+        showCopyToast('Выбери участников');
+        return;
+      }
+      try {
+        const res = await fetch('/api/groups/add-members', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            group_id: editingGroupState.id,
+            user_id: currentUser.id,
+            member_ids: ids
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.group) {
+          editingGroupState.members = data.group.members || [];
+          if (activePeer && activePeer.id === data.group.id) {
+            activePeer.members = editingGroupState.members;
+            applyGroupRoomState();
+          }
+          openGroupManageModal(editingGroupState);
+          showCopyToast('Участники добавлены');
+          loadChatsList();
+        }
+      } catch (e) {}
+    }
+
+    async function toggleGroupMute() {
+      if (!editingGroupState || !currentUser) return;
+      const nextMuted = !Boolean(editingGroupState.muted);
+      try {
+        const res = await fetch('/api/groups/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            group_id: editingGroupState.id,
+            user_id: currentUser.id,
+            muted: nextMuted
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.group) {
+          editingGroupState.muted = Boolean(data.group.muted);
+          if (activePeer && activePeer.id === data.group.id) {
+            activePeer.muted = editingGroupState.muted;
+            applyGroupRoomState();
+          }
+          document.getElementById('toggle-mute-btn').textContent = editingGroupState.muted
+            ? 'Разрешить писать участникам'
+            : 'Запретить писать участникам';
+          showCopyToast(editingGroupState.muted ? 'Писать участникам запрещено' : 'Писать участникам разрешено');
+          loadChatsList();
+        }
+      } catch (e) {}
+    }
+
+    async function deleteCurrentGroup() {
+      if (!editingGroupState || !currentUser) return;
+      const gid = editingGroupState.id;
+      document.getElementById('group-manage-modal').classList.remove('active');
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
+      renderChatsListItems(readChatsCache(currentUser.id));
+      if (activePeer && activePeer.id === gid) {
+        activePeer = null;
+        document.getElementById('chat-room-view').classList.remove('active');
+        if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+      }
+      updateFabVisibility();
+      try {
+        await fetch('/api/groups/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ group_id: gid, user_id: currentUser.id })
+        });
+        loadChatsList();
+      } catch (e) {}
+    }
+
     function openChatWithUser(peer) {
-      activePeer = { ...peer, avatar: peer.avatar || resolveAvatar(peer.id, null) };
+      activePeer = {
+        ...peer,
+        isGroup: Boolean(peer.isGroup),
+        avatar: peer.avatar || (peer.isGroup ? '👥' : resolveAvatar(peer.id, null))
+      };
       cancelReply();
       applyCustomizationToUI();
+      applyGroupRoomState();
+      updateFabVisibility();
 
       document.getElementById('peer-avatar').textContent = activePeer.avatar;
       document.getElementById('peer-nick').textContent = activePeer.nickname;
@@ -1519,7 +2004,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       renderMessages(currentMessagesCache, true);
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 200);
+      chatPollTimer = setInterval(fetchMessages, 250);
     }
 
     function closeChatRoom() {
@@ -1531,6 +2016,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       activePeer = null;
       cancelReply();
       document.getElementById('chat-room-view').classList.remove('active');
+      updateFabVisibility();
       if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
       if (!document.getElementById('search-view').classList.contains('active')) {
         const cachedChats = readChatsCache(currentUser?.id);
@@ -1573,6 +2059,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const hasMultipleDays = uniqueDayKeys.size > 1;
       let lastRenderedDayKey = messages.length > 0 ? getDayKey(messages[0].timestamp) : '';
       const sizeClass = `msg-size-${customization.msgSize}`;
+      const isGroupChat = Boolean(activePeer && activePeer.isGroup);
       const htmlParts = [];
 
       messages.forEach(m => {
@@ -1582,11 +2069,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           lastRenderedDayKey = msgDayKey;
         }
         const isMine = m.sender_id === currentUser.id;
+        const senderLabel = isGroupChat && !isMine && m.sender_nick
+          ? `<div class="msg-sender-name">${escapeHtml(m.sender_nick)}</div>`
+          : '';
         const replyHtml = m.reply_to && m.reply_to.text
           ? `<div class="msg-reply-quote">↩️ ${escapeHtml(m.reply_to.sender_nick || 'Сообщение')}: ${escapeHtml(m.reply_to.text)}</div>`
           : '';
         htmlParts.push(`
           <div class="msg-wrapper ${isMine ? 'mine' : 'theirs'}">
+            ${senderLabel}
             <div class="msg-bubble ${sizeClass} ${isMine ? 'msg-mine' : 'msg-theirs'}" data-msg-id="${escapeHtml(m.id)}">
               ${replyHtml}
               <div class="msg-content-row">
@@ -1632,13 +2123,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function fetchMessages() {
       if (!currentUser || !activePeer || isFetchingMessages) return;
       isFetchingMessages = true;
-      const peerIdSnapshot = activePeer.id;
+      const peerSnapshot = { ...activePeer };
 
       try {
-        const res = await fetch(`/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerIdSnapshot)}`, { cache: 'no-store' });
+        const query = peerSnapshot.isGroup
+          ? `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&group_id=${encodeURIComponent(peerSnapshot.id)}`
+          : `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerSnapshot.id)}`;
+        const res = await fetch(query, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        if (!activePeer || activePeer.id !== peerIdSnapshot || !Array.isArray(data.messages)) return;
+        if (!activePeer || activePeer.id !== peerSnapshot.id || !Array.isArray(data.messages)) return;
+
+        if (data.group) {
+          activePeer.nickname = data.group.name;
+          activePeer.avatar = data.group.icon;
+          activePeer.muted = Boolean(data.group.muted);
+          activePeer.ownerId = data.group.owner_id;
+          activePeer.members = data.group.members || [];
+          document.getElementById('peer-nick').textContent = activePeer.nickname;
+          document.getElementById('peer-avatar').textContent = activePeer.avatar;
+          applyGroupRoomState();
+        }
 
         const serverMsgs = data.messages.map(srv => ({ ...srv, reactions: normalizeReactions(srv.reactions) }));
         if (serverMsgs.length === 0 && currentMessagesCache.length > 0) return;
@@ -1662,9 +2167,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           }
         }
 
-        writeLocalDialog(currentUser.id, peerIdSnapshot, currentMessagesCache);
+        writeLocalDialog(currentUser.id, peerSnapshot.id, currentMessagesCache);
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-        markChatAsRead(currentUser.id, peerIdSnapshot, latestTs);
+        markChatAsRead(currentUser.id, peerSnapshot.id, latestTs);
 
         if (prevSig !== nextSig) renderMessages(currentMessagesCache, false);
       } catch (e) {}
@@ -1676,19 +2181,34 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function submitInstantMessage() {
       if (!currentUser || !activePeer) return;
+      if (activePeer.isGroup && activePeer.muted && activePeer.ownerId !== currentUser.id) {
+        showCopyToast('Писать участникам запрещено');
+        return;
+      }
+
       const input = document.getElementById('chat-message-input');
       const text = input.value.trim();
       if (!text) return;
 
       const peerId = activePeer.id;
       const peerNick = activePeer.nickname;
-      const peerAv = activePeer.avatar || '🕊️';
-      const peerVerified = Boolean(activePeer.verified);
+      const peerAv = activePeer.avatar || (activePeer.isGroup ? '👥' : '🕊️');
+      const isGroup = Boolean(activePeer.isGroup);
       const replySnapshot = replyingToMessage ? { ...replyingToMessage } : null;
       const nowTs = Date.now();
       const tempId = `msg_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
 
-      const newMsg = { id: tempId, sender_id: currentUser.id, receiver_id: peerId, text, timestamp: nowTs, reply_to: replySnapshot, reactions: {} };
+      const newMsg = {
+        id: tempId,
+        sender_id: currentUser.id,
+        sender_nick: currentUser.nickname,
+        receiver_id: isGroup ? '' : peerId,
+        group_id: isGroup ? peerId : '',
+        text,
+        timestamp: nowTs,
+        reply_to: replySnapshot,
+        reactions: {}
+      };
       input.value = '';
       cancelReply();
 
@@ -1698,13 +2218,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const prevChats = readChatsCache(currentUser.id);
       const existingIdx = prevChats.findIndex(c => c.id === peerId);
+      const baseItem = existingIdx >= 0 ? prevChats[existingIdx] : {};
       const updatedChatItem = {
+        ...baseItem,
         id: peerId,
         nickname: peerNick,
         avatar: peerAv,
-        verified: peerVerified,
+        isGroup,
         lastMessage: text,
         lastSenderId: currentUser.id,
+        lastSenderName: currentUser.nickname,
         lastTimestamp: nowTs,
         unreadCount: 0
       };
@@ -1715,15 +2238,28 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       renderMessages(currentMessagesCache, true);
 
+      const payload = {
+        sender_id: currentUser.id,
+        receiver_id: isGroup ? '' : peerId,
+        group_id: isGroup ? peerId : '',
+        text,
+        timestamp: nowTs,
+        reply_to: replySnapshot
+      };
+
       fetch('/api/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
         keepalive: true,
-        body: JSON.stringify({ sender_id: currentUser.id, receiver_id: peerId, text, timestamp: nowTs, reply_to: replySnapshot })
+        body: JSON.stringify(payload)
       })
         .then(r => r.json())
         .then(data => {
+          if (data.error) {
+            showCopyToast(data.error);
+            return;
+          }
           if (data.message && data.message.id) {
             const srvTs = Number(data.message.timestamp) || nowTs;
             markChatAsRead(currentUser.id, peerId, srvTs + 1000);
@@ -1820,7 +2356,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function triggerReplyMessage() {
       if (!selectedMessage) return;
-      const senderNick = selectedMessage.sender_id === currentUser.id ? currentUser.nickname : activePeer.nickname;
+      const senderNick = selectedMessage.sender_id === currentUser.id
+        ? currentUser.nickname
+        : (selectedMessage.sender_nick || activePeer.nickname);
       replyingToMessage = { id: selectedMessage.id, sender_nick: senderNick, text: selectedMessage.text };
       document.getElementById('reply-banner-text').textContent = `Ответ для ${senderNick}: ${selectedMessage.text}`;
       document.getElementById('reply-banner').classList.add('active');
@@ -1901,10 +2439,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       applyCustomizationToUI();
       switchSettingsTab('main');
       document.getElementById('settings-screen').classList.add('active');
+      updateFabVisibility();
     }
 
     function closeSettingsScreen() {
       document.getElementById('settings-screen').classList.remove('active');
+      updateFabVisibility();
       loadChatsList();
     }
 
@@ -1958,6 +2498,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       closeChatRoom();
       closeSettingsScreen();
       closeSearchScreen();
+      updateFabVisibility();
       document.getElementById('main-screen').classList.remove('active');
       document.getElementById('auth-nick').value = '';
       document.getElementById('auth-pass').value = '';
@@ -2105,6 +2646,99 @@ def update_profile():
     return jsonify({'user': safe_user(user)})
 
 
+@app.route('/api/groups/create', methods=['POST'])
+def create_group():
+    data = request.get_json() or {}
+    creator_id = (data.get('creator_id') or '').strip()
+    name = (data.get('name') or '').strip()
+    icon = (data.get('icon') or '👥').strip()
+    raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
+
+    if not creator_id or len(name) < 2:
+        return jsonify({'error': 'Укажи название группы'}), 400
+    if icon not in GROUP_ICONS:
+        icon = '👥'
+
+    members = []
+    for mid in [creator_id] + [str(m).strip() for m in raw_members if str(m).strip()]:
+        if mid not in members:
+            members.append(mid)
+
+    now_ms = int(time.time() * 1000)
+    db = load_db(force_refresh=True)
+    group_obj = {
+        'id': f'grp_{now_ms}',
+        'name': name[:32],
+        'icon': icon,
+        'owner_id': creator_id,
+        'members': members,
+        'muted': False,
+        'created_at': now_ms
+    }
+    db['groups'].append(group_obj)
+    save_db(db)
+    return jsonify({'group': group_obj})
+
+
+@app.route('/api/groups/update', methods=['POST'])
+def update_group():
+    data = request.get_json() or {}
+    group_id = (data.get('group_id') or '').strip()
+    user_id = (data.get('user_id') or '').strip()
+    db = load_db(force_refresh=True)
+
+    grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+    if not grp:
+        return jsonify({'error': 'Группа не найдена'}), 404
+    if user_id and grp.get('owner_id') and grp.get('owner_id') != user_id:
+        return jsonify({'error': 'Только создатель может менять группу'}), 403
+
+    if 'name' in data and isinstance(data.get('name'), str):
+        clean_name = data['name'].strip()
+        if len(clean_name) >= 2:
+            grp['name'] = clean_name[:32]
+    if 'icon' in data and data.get('icon') in GROUP_ICONS:
+        grp['icon'] = data['icon']
+    if 'muted' in data:
+        grp['muted'] = bool(data['muted'])
+
+    save_db(db)
+    return jsonify({'group': grp})
+
+
+@app.route('/api/groups/add-members', methods=['POST'])
+def add_group_members():
+    data = request.get_json() or {}
+    group_id = (data.get('group_id') or '').strip()
+    raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
+
+    db = load_db(force_refresh=True)
+    grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+    if not grp:
+        return jsonify({'error': 'Группа не найдена'}), 404
+
+    members = list(grp.get('members') or [])
+    for mid in raw_members:
+        sid = str(mid).strip()
+        if sid and sid not in members:
+            members.append(sid)
+    grp['members'] = members
+    save_db(db)
+    return jsonify({'group': grp})
+
+
+@app.route('/api/groups/delete', methods=['POST'])
+def delete_group():
+    data = request.get_json() or {}
+    group_id = (data.get('group_id') or '').strip()
+    db = load_db(force_refresh=True)
+
+    db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
+    db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
+    save_db(db)
+    return jsonify({'ok': True, 'deleted_id': group_id})
+
+
 @app.route('/api/chats', methods=['GET'])
 def get_chats():
     user_id = (request.args.get('user_id') or '').strip()
@@ -2116,6 +2750,8 @@ def get_chats():
     partner_ids = set()
 
     for m in db['messages']:
+        if m.get('group_id'):
+            continue
         if m.get('sender_id') == user_id and m.get('receiver_id'):
             partner_ids.add(m['receiver_id'])
         elif m.get('receiver_id') == user_id and m.get('sender_id'):
@@ -2128,8 +2764,9 @@ def get_chats():
             continue
         dialog = [
             m for m in db['messages']
-            if (m.get('sender_id') == user_id and m.get('receiver_id') == pid)
-            or (m.get('sender_id') == pid and m.get('receiver_id') == user_id)
+            if not m.get('group_id')
+            and ((m.get('sender_id') == user_id and m.get('receiver_id') == pid)
+                 or (m.get('sender_id') == pid and m.get('receiver_id') == user_id))
         ]
         dialog.sort(key=lambda x: x.get('timestamp', 0))
         last_msg = dialog[-1] if dialog else None
@@ -2139,9 +2776,35 @@ def get_chats():
             'nickname': partner['nickname'],
             'avatar': partner.get('avatar', '🕊️'),
             'verified': has_any_checkmark(partner['nickname']),
+            'isGroup': False,
             'lastMessage': last_msg.get('text', '') if last_msg else '',
             'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
             'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else 0
+        })
+
+    for grp in db['groups']:
+        members = grp.get('members') or []
+        if user_id not in members and grp.get('owner_id') != user_id:
+            continue
+        gid = grp.get('id')
+        g_msgs = [m for m in db['messages'] if m.get('group_id') == gid]
+        g_msgs.sort(key=lambda x: x.get('timestamp', 0))
+        last_msg = g_msgs[-1] if g_msgs else None
+        last_sender = users_by_id.get(last_msg.get('sender_id', ''), {}) if last_msg else {}
+
+        chats.append({
+            'id': gid,
+            'nickname': grp.get('name', 'Группа'),
+            'avatar': grp.get('icon', '👥'),
+            'verified': False,
+            'isGroup': True,
+            'ownerId': grp.get('owner_id', ''),
+            'members': members,
+            'muted': bool(grp.get('muted')),
+            'lastMessage': last_msg.get('text', '') if last_msg else '',
+            'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
+            'lastSenderName': last_sender.get('nickname', '') if last_msg else '',
+            'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else grp.get('created_at', 0)
         })
 
     chats.sort(key=lambda c: c['lastTimestamp'], reverse=True)
@@ -2152,14 +2815,23 @@ def get_chats():
 def get_messages():
     user_id = (request.args.get('user_id') or '').strip()
     peer_id = (request.args.get('peer_id') or '').strip()
+    group_id = (request.args.get('group_id') or '').strip()
+
+    db = load_db()
+    if group_id:
+        grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+        g_msgs = [m for m in db['messages'] if m.get('group_id') == group_id]
+        g_msgs.sort(key=lambda x: x.get('timestamp', 0))
+        return jsonify({'messages': g_msgs, 'group': grp})
+
     if not user_id or not peer_id:
         return jsonify({'messages': []})
 
-    db = load_db()
     dialog = [
         m for m in db['messages']
-        if (m.get('sender_id') == user_id and m.get('receiver_id') == peer_id)
-        or (m.get('sender_id') == peer_id and m.get('receiver_id') == user_id)
+        if not m.get('group_id')
+        and ((m.get('sender_id') == user_id and m.get('receiver_id') == peer_id)
+             or (m.get('sender_id') == peer_id and m.get('receiver_id') == user_id))
     ]
     dialog.sort(key=lambda x: x.get('timestamp', 0))
     return jsonify({'messages': dialog})
@@ -2170,17 +2842,27 @@ def send_message():
     data = request.get_json() or {}
     sender_id = (data.get('sender_id') or '').strip()
     receiver_id = (data.get('receiver_id') or '').strip()
+    group_id = (data.get('group_id') or '').strip()
     text = (data.get('text') or '').strip()
     reply_to = data.get('reply_to')
 
-    if not sender_id or not receiver_id or not text:
+    if not sender_id or not text:
         return jsonify({'error': 'Пустое сообщение'}), 400
+    if not group_id and not receiver_id:
+        return jsonify({'error': 'Не указан получатель или группа'}), 400
     if len(text) > 1000:
         return jsonify({'error': 'Сообщение слишком длинное'}), 400
 
     db = load_db()
     users_by_id = {u['id']: u for u in db['users']}
-    if users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
+
+    if group_id:
+        grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
+        if not grp:
+            return jsonify({'error': 'Группа не найдена'}), 404
+        if grp.get('muted') and grp.get('owner_id') != sender_id:
+            return jsonify({'error': 'Владелец группы запретил писать участникам'}), 403
+    elif users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
         return jsonify({'error': 'Пользователь не найден'}), 404
 
     now_ms = int(time.time() * 1000)
@@ -2192,10 +2874,13 @@ def send_message():
             'text': str(reply_to.get('text', ''))[:120]
         }
 
+    sender_nick = users_by_id.get(sender_id, {}).get('nickname', 'Участник')
     msg = {
         'id': f'{now_ms}_{len(db["messages"]) + 1}',
         'sender_id': sender_id,
-        'receiver_id': receiver_id,
+        'sender_nick': sender_nick,
+        'receiver_id': '' if group_id else receiver_id,
+        'group_id': group_id,
         'text': text,
         'timestamp': now_ms,
         'reply_to': clean_reply,
@@ -2258,7 +2943,7 @@ def delete_message():
     before_count = len(db['messages'])
     db['messages'] = [
         m for m in db['messages']
-        if not (m.get('id') == msg_id and (not user_id or m.get('sender_id') == user_id or m.get('receiver_id') == user_id))
+        if not (m.get('id') == msg_id and (not user_id or m.get('sender_id') == user_id or m.get('receiver_id') == user_id or m.get('group_id')))
     ]
     if len(db['messages']) == before_count:
         return jsonify({'error': 'Сообщение не найдено'}), 404
