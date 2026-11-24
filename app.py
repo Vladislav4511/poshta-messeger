@@ -1378,15 +1378,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         return;
       }
       try {
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+        const excludeParam = currentUser && currentUser.id ? `&exclude_id=${encodeURIComponent(currentUser.id)}` : '';
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}${excludeParam}`, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (!Array.isArray(data.users)) return;
-        if (data.users.length === 0) {
+        const users = data.users.filter(u => !currentUser || u.id !== currentUser.id);
+        if (users.length === 0) {
           resultsEl.innerHTML = '<div class="search-empty">Пользователи не найдены</div>';
           return;
         }
-        resultsEl.innerHTML = data.users.map(u => {
+        resultsEl.innerHTML = users.map(u => {
           const av = resolveAvatar(u.id, u.avatar);
           const safeObj = escapeHtml(JSON.stringify({ ...u, avatar: av }));
           return `
@@ -2044,6 +2046,7 @@ def me():
 @app.route('/api/users/search', methods=['GET'])
 def search_users():
     q = (request.args.get('q') or '').strip().lower()
+    exclude_id = (request.args.get('exclude_id') or '').strip()
     if not q:
         return jsonify({'users': []})
     db = load_db()
@@ -2055,7 +2058,7 @@ def search_users():
             'verified': has_any_checkmark(u['nickname'])
         }
         for u in db['users']
-        if u['nickname'].lower().startswith(q)
+        if (not exclude_id or u['id'] != exclude_id) and u['nickname'].lower().startswith(q)
     ]
     return jsonify({'users': matched})
 
