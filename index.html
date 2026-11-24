@@ -1012,6 +1012,17 @@
       </span>
     `;
 
+    function resolveAvatar(userId, fallbackAvatar) {
+      if (userId) {
+        const localAv = localStorage.getItem(`pigeon_avatar_${userId}`);
+        if (localAv) return localAv;
+        if (currentUser && currentUser.id === userId && currentUser.avatar) {
+          return currentUser.avatar;
+        }
+      }
+      return fallbackAvatar || '🕊️';
+    }
+
     function scrollChatToBottom() {
       const box = document.getElementById('chat-messages');
       if (!box) return;
@@ -1101,6 +1112,7 @@
             const res = await fetch('/api/me', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
               body: JSON.stringify({ id: savedId })
             });
             const data = await res.json();
@@ -1138,6 +1150,7 @@
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
           body: JSON.stringify({ nickname, password })
         });
         const data = await res.json();
@@ -1158,7 +1171,7 @@
 
     function enterApp(user) {
       currentUser = user;
-      selectedAvatar = user.avatar || '🕊️';
+      selectedAvatar = resolveAvatar(user.id, user.avatar);
 
       document.getElementById('auth-screen').classList.remove('active');
       document.getElementById('main-screen').classList.add('active');
@@ -1171,7 +1184,8 @@
 
     function updateHeaderUI() {
       if (!currentUser) return;
-      document.getElementById('header-avatar').textContent = currentUser.avatar || '🕊️';
+      const av = resolveAvatar(currentUser.id, currentUser.avatar);
+      document.getElementById('header-avatar').textContent = av;
       document.getElementById('header-nick').textContent = currentUser.nickname;
       document.getElementById('header-verified').style.display =
         currentUser.verified ? 'inline-flex' : 'none';
@@ -1209,7 +1223,7 @@
       }
 
       try {
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
         const data = await res.json();
         const users = data.users || [];
 
@@ -1218,18 +1232,22 @@
           return;
         }
 
-        resultsEl.innerHTML = users.map(u => `
-          <div class="search-user-item" onclick='openChatWithUser(${JSON.stringify(u)})'>
-            <div class="search-user-left">
-              <div class="avatar-circle">${u.avatar || '🕊️'}</div>
-              <div class="nickname-row">
-                <span>${escapeHtml(u.nickname)}</span>
-                ${u.verified ? CHECKMARK_SVG : ''}
+        resultsEl.innerHTML = users.map(u => {
+          const av = resolveAvatar(u.id, u.avatar);
+          const safeObj = escapeHtml(JSON.stringify({ ...u, avatar: av }));
+          return `
+            <div class="search-user-item" onclick='openChatWithUser(${safeObj})'>
+              <div class="search-user-left">
+                <div class="avatar-circle">${av}</div>
+                <div class="nickname-row">
+                  <span>${escapeHtml(u.nickname)}</span>
+                  ${u.verified ? CHECKMARK_SVG : ''}
+                </div>
               </div>
+              <span class="open-chat-tag">Чат →</span>
             </div>
-            <span class="open-chat-tag">Чат →</span>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } catch (e) {
         resultsEl.innerHTML = '<div class="search-empty">Ошибка поиска</div>';
       }
@@ -1242,7 +1260,7 @@
       const emptyEl = document.getElementById('empty-chats-placeholder');
 
       try {
-        const res = await fetch(`/api/chats?user_id=${encodeURIComponent(currentUser.id)}`);
+        const res = await fetch(`/api/chats?user_id=${encodeURIComponent(currentUser.id)}`, { cache: 'no-store' });
         const data = await res.json();
         const chats = data.chats || [];
 
@@ -1253,38 +1271,45 @@
         }
 
         emptyEl.style.display = 'none';
-        listEl.innerHTML = chats.map(c => `
-          <div class="chat-list-item" onclick='openChatWithUser(${JSON.stringify(c)})'>
-            <div class="avatar-circle">${c.avatar || '🕊️'}</div>
-            <div class="chat-meta">
-              <div class="nickname-row">
-                <span>${escapeHtml(c.nickname)}</span>
-                ${c.verified ? CHECKMARK_SVG : ''}
+        listEl.innerHTML = chats.map(c => {
+          const av = resolveAvatar(c.id, c.avatar);
+          const safeObj = escapeHtml(JSON.stringify({ ...c, avatar: av }));
+          return `
+            <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
+              <div class="avatar-circle">${av}</div>
+              <div class="chat-meta">
+                <div class="nickname-row">
+                  <span>${escapeHtml(c.nickname)}</span>
+                  ${c.verified ? CHECKMARK_SVG : ''}
+                </div>
+                <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
               </div>
-              <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } catch (e) {}
     }
 
     function openChatWithUser(peer) {
-      activePeer = peer;
+      activePeer = {
+        ...peer,
+        avatar: resolveAvatar(peer.id, peer.avatar)
+      };
       cancelReply();
       applyCustomizationToUI();
 
-      document.getElementById('peer-avatar').textContent = peer.avatar || '🕊️';
-      document.getElementById('peer-nick').textContent = peer.nickname;
-      document.getElementById('peer-verified').innerHTML = peer.verified ? CHECKMARK_SVG : '';
+      document.getElementById('peer-avatar').textContent = activePeer.avatar;
+      document.getElementById('peer-nick').textContent = activePeer.nickname;
+      document.getElementById('peer-verified').innerHTML = activePeer.verified ? CHECKMARK_SVG : '';
       document.getElementById('chat-room-view').classList.add('active');
 
-      currentMessagesCache = readLocalDialog(currentUser.id, peer.id);
+      currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id);
       renderMessages(currentMessagesCache);
       scrollChatToBottom();
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 4000);
+      chatPollTimer = setInterval(fetchMessages, 1000);
     }
 
     function closeChatRoom() {
@@ -1364,10 +1389,16 @@
 
       try {
         const res = await fetch(
-          `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerIdSnapshot)}`
+          `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerIdSnapshot)}`,
+          { cache: 'no-store' }
         );
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerIdSnapshot) return;
+
+        if (data.peerAvatar) {
+          activePeer.avatar = data.peerAvatar;
+          document.getElementById('peer-avatar').textContent = resolveAvatar(peerIdSnapshot, data.peerAvatar);
+        }
 
         const serverMsgs = Array.isArray(data.messages) ? data.messages : [];
         const localOnlyPending = currentMessagesCache.filter(
@@ -1422,6 +1453,7 @@
       fetch('/api/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
           sender_id: currentUser.id,
           receiver_id: peerId,
@@ -1437,6 +1469,7 @@
             );
             writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
           }
+          fetchMessages();
         })
         .catch(() => {});
     }
@@ -1535,6 +1568,7 @@
         fetch('/api/messages/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
           body: JSON.stringify({
             message_id: targetId,
             user_id: currentUser.id
@@ -1550,7 +1584,7 @@
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
-      selectedAvatar = currentUser.avatar || '🕊️';
+      selectedAvatar = resolveAvatar(currentUser.id, currentUser.avatar);
 
       const weekMs = 7 * 24 * 60 * 60 * 1000;
       const passed = Date.now() - (currentUser.lastNickChange || 0);
@@ -1581,6 +1615,18 @@
           currentUser.avatar = emoji;
           localStorage.setItem(`pigeon_avatar_${currentUser.id}`, emoji);
           updateHeaderUI();
+          loadChatsList();
+
+          fetch('/api/update-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({
+              id: currentUser.id,
+              newNickname: currentUser.nickname,
+              newAvatar: emoji
+            })
+          }).catch(() => {});
         };
         grid.appendChild(btn);
       });
@@ -1592,6 +1638,7 @@
 
     function closeSettingsScreen() {
       document.getElementById('settings-screen').classList.remove('active');
+      loadChatsList();
     }
 
     function switchSettingsTab(tab) {
@@ -1631,6 +1678,7 @@
         const res = await fetch('/api/update-profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
           body: JSON.stringify({
             id: currentUser.id,
             newNickname,
@@ -1649,6 +1697,7 @@
           avatar: selectedAvatar
         };
         updateHeaderUI();
+        loadChatsList();
       } catch (err) {
         errorEl.textContent = 'Аватарка сохранена локально, но нет связи с сервером';
       }
@@ -1675,4 +1724,4 @@
     }
   </script>
 </body>
-  </html>
+</html>
