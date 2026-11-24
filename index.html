@@ -496,14 +496,9 @@
       line-height: 1.35;
       word-break: break-word;
       cursor: pointer;
-      transition: transform 0.1s;
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
-    }
-
-    .msg-bubble:active {
-      transform: scale(0.98);
     }
 
     .msg-content-row {
@@ -1150,7 +1145,7 @@
       const box = document.getElementById('chat-messages');
       if (!box) return;
       const distanceFromBottom = box.scrollHeight - box.scrollTop - box.clientHeight;
-      if (force || distanceFromBottom < 120) {
+      if (force || distanceFromBottom < 140) {
         requestAnimationFrame(() => {
           box.scrollTop = box.scrollHeight;
         });
@@ -1327,7 +1322,7 @@
         if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
           loadChatsList();
         }
-      }, 2000);
+      }, 3000);
     }
 
     function updateHeaderUI() {
@@ -1467,44 +1462,21 @@
           return;
         }
 
-        const enriched = await Promise.all(data.chats.map(async c => {
+        const normalized = data.chats.map(c => {
           const av = c.avatar || resolveAvatar(c.id, null);
           if (c.id && c.avatar) {
             localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
           }
 
           let unreadCount = typeof c.unreadCount === 'number' ? c.unreadCount : 0;
-          let lastMessageText = c.lastMessage || 'Нет сообщений';
-          let lastTs = Number(c.lastTimestamp) || 0;
-
-          try {
-            const mRes = await fetch(
-              `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(c.id)}`,
-              { cache: 'no-store' }
-            );
-            if (mRes.ok) {
-              const mData = await mRes.json();
-              if (Array.isArray(mData.messages) && mData.messages.length > 0) {
-                writeLocalDialog(currentUser.id, c.id, mData.messages);
-                const lastM = mData.messages[mData.messages.length - 1];
-                lastMessageText = lastM.text || lastMessageText;
-                lastTs = Number(lastM.timestamp) || lastTs;
-                unreadCount = computeUnreadCount(c.id, mData.messages);
-              }
-            }
-          } catch (e) {
-            const localMsgs = readLocalDialog(currentUser.id, c.id);
-            if (localMsgs.length > 0) {
-              const lastM = localMsgs[localMsgs.length - 1];
-              lastMessageText = lastM.text || lastMessageText;
-              lastTs = Number(lastM.timestamp) || lastTs;
-              unreadCount = computeUnreadCount(c.id, localMsgs);
-            }
+          const localMsgs = readLocalDialog(currentUser.id, c.id);
+          if (localMsgs.length > 0) {
+            const localUnread = computeUnreadCount(c.id, localMsgs);
+            if (localUnread > unreadCount) unreadCount = localUnread;
           }
 
           if (activePeer && activePeer.id === c.id) {
             unreadCount = 0;
-            markChatAsRead(currentUser.id, c.id, Math.max(Date.now(), lastTs));
             activePeer.avatar = av;
             document.getElementById('peer-avatar').textContent = av;
           }
@@ -1512,14 +1484,13 @@
           return {
             ...c,
             avatar: av,
-            lastMessage: lastMessageText,
-            lastTimestamp: lastTs,
+            lastMessage: c.lastMessage || 'Нет сообщений',
             unreadCount
           };
-        }));
+        });
 
-        writeChatsCache(currentUser.id, enriched);
-        renderChatsListItems(enriched);
+        writeChatsCache(currentUser.id, normalized);
+        renderChatsListItems(normalized);
       } catch (e) {
       } finally {
         isFetchingChatsList = false;
@@ -1547,7 +1518,7 @@
 
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 700);
+      chatPollTimer = setInterval(fetchMessages, 1200);
     }
 
     function closeChatRoom() {
@@ -1579,7 +1550,7 @@
       if (!box) return;
 
       const prevScrollTop = box.scrollTop;
-      const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
+      const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 140;
 
       if (!messages || messages.length === 0) {
         if (!box.innerHTML.trim()) {
@@ -1674,7 +1645,7 @@
         if (!Array.isArray(data.messages)) return;
 
         const nextPeerAvatar = data.peerAvatar || data.peer?.avatar;
-        if (nextPeerAvatar) {
+        if (nextPeerAvatar && nextPeerAvatar !== activePeer.avatar) {
           activePeer.avatar = nextPeerAvatar;
           localStorage.setItem(`pigeon_avatar_${peerIdSnapshot}`, nextPeerAvatar);
           document.getElementById('peer-avatar').textContent = nextPeerAvatar;
@@ -2034,4 +2005,4 @@
     }
   </script>
 </body>
-  </html>
+</html>
