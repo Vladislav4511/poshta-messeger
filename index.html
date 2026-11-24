@@ -489,14 +489,31 @@
       flex-shrink: 0;
     }
 
+    .msg-wrapper {
+      display: flex;
+      flex-direction: column;
+      max-width: 82%;
+      flex-shrink: 0;
+    }
+
+    .msg-wrapper.mine {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .msg-wrapper.theirs {
+      align-self: flex-start;
+      align-items: flex-start;
+    }
+
     .msg-bubble {
-      max-width: 80%;
+      width: fit-content;
+      max-width: 100%;
       padding: 10px 14px;
       border-radius: 16px;
       line-height: 1.35;
       word-break: break-word;
       cursor: pointer;
-      flex-shrink: 0;
       display: flex;
       flex-direction: column;
     }
@@ -526,14 +543,12 @@
     .msg-size-large { font-size: 18px; }
 
     .msg-mine {
-      align-self: flex-end;
       background: #0284c7;
       color: #ffffff;
       border-bottom-right-radius: 4px;
     }
 
     .msg-theirs {
-      align-self: flex-start;
       background: #1e293b;
       color: #f8fafc;
       border: 1px solid #334155;
@@ -548,6 +563,57 @@
       background: rgba(15, 23, 42, 0.35);
       border-left: 3px solid #38bdf8;
       color: #e2e8f0;
+    }
+
+    /* --- РЕАКЦИИ ПОД СООБЩЕНИЕМ --- */
+    .msg-reactions-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 4px;
+    }
+
+    .reaction-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      font-size: 12px;
+      cursor: pointer;
+      line-height: 1.2;
+      max-width: 100%;
+    }
+
+    .reaction-chip.active-mine {
+      background: #1e3a5f;
+      border-color: #38bdf8;
+      color: #ffffff;
+    }
+
+    .reaction-chip-emoji {
+      font-size: 13px;
+    }
+
+    .reaction-chip-count {
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .reaction-chip-users {
+      color: #94a3b8;
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 160px;
+    }
+
+    .reaction-chip.active-mine .reaction-chip-users {
+      color: #bae6fd;
     }
 
     .reply-banner {
@@ -622,7 +688,7 @@
       display: block;
     }
 
-    /* --- МЕНЮ ПРИ ЗАЖАТИИ СООБЩЕНИЯ --- */
+    /* --- МЕНЮ ПРИ НАЖАТИИ / ЗАЖАТИИ СООБЩЕНИЯ --- */
     .action-sheet-overlay {
       position: fixed;
       inset: 0;
@@ -640,7 +706,7 @@
 
     .action-sheet {
       width: 100%;
-      max-width: 400px;
+      max-width: 420px;
       background: #1e293b;
       border-radius: 20px;
       padding: 16px;
@@ -654,7 +720,64 @@
       font-size: 13px;
       color: #94a3b8;
       text-align: center;
-      padding-bottom: 4px;
+      padding-bottom: 2px;
+    }
+
+    .emoji-picker-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      background: #0f172a;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid #334155;
+    }
+
+    .emoji-pick-btn {
+      height: 44px;
+      border-radius: 10px;
+      border: 2px solid transparent;
+      background: #1e293b;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.1s, border-color 0.15s, background 0.15s;
+    }
+
+    .emoji-pick-btn:active {
+      transform: scale(0.92);
+    }
+
+    .emoji-pick-btn.selected {
+      border-color: #38bdf8;
+      background: #1e3a5f;
+    }
+
+    .sheet-reactions-summary {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 12px;
+      color: #cbd5e1;
+      max-height: 130px;
+      overflow-y: auto;
+    }
+
+    .sheet-reactions-summary:empty {
+      display: none;
+    }
+
+    .sheet-reaction-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.3;
     }
 
     .sheet-btn {
@@ -884,11 +1007,7 @@
         <div class="avatar-circle" id="header-avatar">🕊️</div>
         <div class="nickname-row">
           <span id="header-nick">Пользователь</span>
-          <span id="header-verified" class="verified-badge" style="display: none;" title="Подтверждённый аккаунт">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="#38bdf8">
-              <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
-            </svg>
-          </span>
+          <span id="header-verified"></span>
         </div>
       </div>
 
@@ -1019,10 +1138,21 @@
     </form>
   </div>
 
-  <!-- МЕНЮ ПРИ ЗАЖАТИИ СООБЩЕНИЯ -->
+  <!-- МЕНЮ ПРИ НАЖАТИИ / ЗАЖАТИИ СООБЩЕНИЯ -->
   <div class="action-sheet-overlay" id="msg-action-sheet" onclick="closeMessageMenu(event)">
     <div class="action-sheet" onclick="event.stopPropagation()">
       <div class="action-sheet-title" id="action-sheet-preview">Что сделать с сообщением?</div>
+
+      <div class="emoji-picker-row" id="emoji-picker-row">
+        <button type="button" class="emoji-pick-btn" data-emoji="👍" onclick="toggleReactionOnSelected('👍')">👍</button>
+        <button type="button" class="emoji-pick-btn" data-emoji="👎" onclick="toggleReactionOnSelected('👎')">👎</button>
+        <button type="button" class="emoji-pick-btn" data-emoji="😃" onclick="toggleReactionOnSelected('😃')">😃</button>
+        <button type="button" class="emoji-pick-btn" data-emoji="💩" onclick="toggleReactionOnSelected('💩')">💩</button>
+        <button type="button" class="emoji-pick-btn" data-emoji="🐗" onclick="toggleReactionOnSelected('🐗')">🐗</button>
+      </div>
+
+      <div class="sheet-reactions-summary" id="sheet-reactions-summary"></div>
+
       <button type="button" class="sheet-btn reply" onclick="triggerReplyMessage()">↩️ Ответить</button>
       <button type="button" class="sheet-btn copy" onclick="triggerCopyMessage()">📋 Копировать сообщение</button>
       <button type="button" class="sheet-btn delete" onclick="triggerDeleteMessage()">🗑️ Удалить</button>
@@ -1049,6 +1179,8 @@
       msgSize: 'medium'
     };
 
+    const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
+
     const ALLOWED_AVATARS = [
       '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
       '😎', '👻', '🔥', '⭐', '🎮', '💎',
@@ -1060,13 +1192,30 @@
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
 
-    const CHECKMARK_SVG = `
-      <span class="verified-badge" title="Подтверждённый аккаунт">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="#38bdf8">
-          <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
-        </svg>
-      </span>
-    `;
+    function makeCheckmarkSvg(color) {
+      return `
+        <span class="verified-badge" title="Подтверждённый аккаунт">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="${color}">
+            <path d="M22.5 12.5c0-1.58-.875-2.95-2.148-3.6.154-.435.238-.905.238-1.4 0-2.21-1.71-3.998-3.818-3.998-.47 0-.92.084-1.336.25C14.818 2.415 13.51 1.5 12 1.5s-2.816.917-3.437 2.25c-.415-.165-.866-.25-1.336-.25-2.11 0-3.818 1.79-3.818 4 0 .494.083.964.237 1.4-1.272.65-2.147 2.018-2.147 3.6 0 1.495.782 2.798 1.942 3.486-.02.17-.032.34-.032.514 0 2.21 1.708 4 3.818 4 .47 0 .92-.086 1.335-.25.62 1.334 1.926 2.25 3.437 2.25 1.512 0 2.818-.916 3.437-2.25.415.163.865.248 1.336.248 2.11 0 3.818-1.79 3.818-4 0-.174-.012-.344-.033-.513 1.158-.687 1.943-1.99 1.943-3.484zm-6.616-3.334l-4.334 6.5c-.145.217-.382.334-.625.334-.143 0-.288-.04-.416-.126l-.115-.094-2.415-2.415c-.293-.293-.293-.768 0-1.06s.768-.294 1.06 0l1.77 1.767 3.825-5.74c.23-.345.696-.436 1.04-.207.346.23.44.696.21 1.04z"/>
+          </svg>
+        </span>
+      `;
+    }
+
+    function isKabanchik(nickname) {
+      return String(nickname || '').trim().toLowerCase() === 'кабанчег';
+    }
+
+    function getBadgeHtmlForUser(user) {
+      if (!user) return '';
+      if (isKabanchik(user.nickname)) {
+        return makeCheckmarkSvg('#ef4444');
+      }
+      if (user.verified) {
+        return makeCheckmarkSvg('#38bdf8');
+      }
+      return '';
+    }
 
     function formatMsgTime(ts) {
       const d = new Date(Number(ts) || Date.now());
@@ -1235,6 +1384,142 @@
       } catch (e) {}
     }
 
+    /* --- НОРМАЛИЗАЦИЯ РЕАКЦИЙ: { [emoji]: [ { user_id, nickname } ] } --- */
+    function normalizeReactions(rawReactions, msg) {
+      const map = new Map();
+
+      function addEntry(emoji, userId, nickname) {
+        if (!REACTION_EMOJIS.includes(emoji)) return;
+        const uid = String(userId || nickname || 'user');
+        let nick = String(nickname || '').trim();
+        if (!nick) {
+          if (currentUser && uid === currentUser.id) nick = currentUser.nickname;
+          else if (activePeer && uid === activePeer.id) nick = activePeer.nickname;
+          else nick = 'Пользователь';
+        }
+        if (!map.has(emoji)) map.set(emoji, []);
+        const list = map.get(emoji);
+        const existingIdx = list.findIndex(item => item.user_id === uid);
+        if (existingIdx >= 0) {
+          list[existingIdx] = { user_id: uid, nickname: nick };
+        } else {
+          list.push({ user_id: uid, nickname: nick });
+        }
+      }
+
+      if (Array.isArray(rawReactions)) {
+        rawReactions.forEach(item => {
+          if (!item) return;
+          if (typeof item === 'string') {
+            addEntry(item, currentUser?.id, currentUser?.nickname);
+          } else if (item.emoji) {
+            const usersArr = Array.isArray(item.users) ? item.users : null;
+            if (usersArr && usersArr.length > 0) {
+              usersArr.forEach(u => {
+                if (typeof u === 'string') addEntry(item.emoji, u, u);
+                else addEntry(item.emoji, u.user_id || u.id, u.nickname || u.name);
+              });
+            } else {
+              addEntry(item.emoji, item.user_id || item.id, item.nickname || item.user_nickname);
+            }
+          }
+        });
+      } else if (rawReactions && typeof rawReactions === 'object') {
+        Object.entries(rawReactions).forEach(([emoji, val]) => {
+          if (Array.isArray(val)) {
+            val.forEach(u => {
+              if (typeof u === 'string') addEntry(emoji, u, u);
+              else if (u && typeof u === 'object') {
+                addEntry(emoji, u.user_id || u.id, u.nickname || u.name);
+              }
+            });
+          } else if (typeof val === 'number' && val > 0) {
+            addEntry(emoji, 'peer_unknown', activePeer?.nickname || 'Собеседник');
+          }
+        });
+      }
+
+      if (msg && msg.reactions_by_user && typeof msg.reactions_by_user === 'object') {
+        Object.entries(msg.reactions_by_user).forEach(([uid, entry]) => {
+          if (!entry) return;
+          if (typeof entry === 'string') addEntry(entry, uid, '');
+          else if (entry.emoji) addEntry(entry.emoji, uid, entry.nickname);
+        });
+      }
+
+      const result = {};
+      REACTION_EMOJIS.forEach(em => {
+        if (map.has(em) && map.get(em).length > 0) {
+          result[em] = map.get(em);
+        }
+      });
+      return result;
+    }
+
+    function mergeMessageReactions(localMsg, serverMsg) {
+      const localMap = normalizeReactions(localMsg?.reactions, localMsg);
+      const serverMap = normalizeReactions(serverMsg?.reactions, serverMsg);
+      const merged = {};
+
+      REACTION_EMOJIS.forEach(em => {
+        const combined = [];
+        const seen = new Set();
+
+        (serverMap[em] || []).forEach(u => {
+          if (!seen.has(u.user_id)) {
+            seen.add(u.user_id);
+            combined.push(u);
+          }
+        });
+
+        (localMap[em] || []).forEach(u => {
+          const isMe = currentUser && u.user_id === currentUser.id;
+          const serverHasMe = serverMap[em] && serverMap[em].some(su => su.user_id === currentUser?.id);
+          if (!seen.has(u.user_id) && (!isMe || !serverHasMe)) {
+            seen.add(u.user_id);
+            combined.push(u);
+          }
+        });
+
+        if (combined.length > 0) {
+          merged[em] = combined;
+        }
+      });
+
+      return merged;
+    }
+
+    function applyReactionToggleToMessage(msg, emoji, user) {
+      if (!msg || !user) return msg;
+      const currentMap = normalizeReactions(msg.reactions, msg);
+      const nextMap = {};
+
+      let hadThisEmojiByMe = false;
+
+      REACTION_EMOJIS.forEach(em => {
+        const filtered = (currentMap[em] || []).filter(item => item.user_id !== user.id);
+        if ((currentMap[em] || []).some(item => item.user_id === user.id) && em === emoji) {
+          hadThisEmojiByMe = true;
+        }
+        if (filtered.length > 0) {
+          nextMap[em] = filtered;
+        }
+      });
+
+      if (!hadThisEmojiByMe) {
+        if (!nextMap[emoji]) nextMap[emoji] = [];
+        nextMap[emoji].push({
+          user_id: user.id,
+          nickname: user.nickname
+        });
+      }
+
+      return {
+        ...msg,
+        reactions: nextMap
+      };
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       loadCustomization();
       applyCustomizationToUI();
@@ -1337,8 +1622,7 @@
       const av = resolveAvatar(currentUser.id, currentUser.avatar);
       document.getElementById('header-avatar').textContent = av;
       document.getElementById('header-nick').textContent = currentUser.nickname;
-      document.getElementById('header-verified').style.display =
-        currentUser.verified ? 'inline-flex' : 'none';
+      document.getElementById('header-verified').innerHTML = getBadgeHtmlForUser(currentUser);
     }
 
     /* --- ОТДЕЛЬНЫЙ ЭКРАН ПОИСКА --- */
@@ -1393,7 +1677,7 @@
                 <div class="avatar-circle">${av}</div>
                 <div class="nickname-row">
                   <span>${escapeHtml(u.nickname)}</span>
-                  ${u.verified ? CHECKMARK_SVG : ''}
+                  ${getBadgeHtmlForUser(u)}
                 </div>
               </div>
               <span class="open-chat-tag">Чат →</span>
@@ -1444,7 +1728,7 @@
             <div class="chat-meta">
               <div class="nickname-row">
                 <span>${escapeHtml(c.nickname)}</span>
-                ${c.verified ? CHECKMARK_SVG : ''}
+                ${getBadgeHtmlForUser(c)}
               </div>
               <div class="chat-last-msg">${escapeHtml(c.lastMessage || 'Нет сообщений')}</div>
             </div>
@@ -1526,10 +1810,13 @@
 
       document.getElementById('peer-avatar').textContent = activePeer.avatar;
       document.getElementById('peer-nick').textContent = activePeer.nickname;
-      document.getElementById('peer-verified').innerHTML = activePeer.verified ? CHECKMARK_SVG : '';
+      document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
       document.getElementById('chat-room-view').classList.add('active');
 
-      currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id);
+      currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id).map(m => ({
+        ...m,
+        reactions: normalizeReactions(m.reactions, m)
+      }));
       const latestLocalTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
       markChatAsRead(currentUser.id, activePeer.id, latestLocalTs);
 
@@ -1573,6 +1860,32 @@
       }
     }
 
+    function renderReactionsChipsHtml(msg) {
+      const reactionsMap = normalizeReactions(msg.reactions, msg);
+      const entries = Object.entries(reactionsMap);
+      if (entries.length === 0) return '';
+
+      const chips = entries.map(([emoji, users]) => {
+        const isMine = currentUser && users.some(u => u.user_id === currentUser.id);
+        const namesText = users.map(u => u.nickname).join(', ');
+        return `
+          <button
+            type="button"
+            class="reaction-chip ${isMine ? 'active-mine' : ''}"
+            data-react-msg-id="${escapeHtml(msg.id)}"
+            data-react-emoji="${escapeHtml(emoji)}"
+            title="${escapeHtml(emoji + ' — ' + namesText)}"
+          >
+            <span class="reaction-chip-emoji">${escapeHtml(emoji)}</span>
+            <span class="reaction-chip-count">${users.length}</span>
+            <span class="reaction-chip-users">${escapeHtml(namesText)}</span>
+          </button>
+        `;
+      }).join('');
+
+      return `<div class="msg-reactions-list">${chips}</div>`;
+    }
+
     function renderMessages(messages, forceScroll = false) {
       const box = document.getElementById('chat-messages');
       if (!box) return;
@@ -1607,19 +1920,35 @@
           ? `<div class="msg-reply-quote">↩️ ${escapeHtml(m.reply_to.sender_nick || 'Сообщение')}: ${escapeHtml(m.reply_to.text)}</div>`
           : '';
         const timeStr = formatMsgTime(m.timestamp);
+        const reactionsHtml = renderReactionsChipsHtml(m);
 
         htmlParts.push(`
-          <div class="msg-bubble ${sizeClass} ${isMine ? 'msg-mine' : 'msg-theirs'}" data-msg-id="${escapeHtml(m.id)}">
-            ${replyHtml}
-            <div class="msg-content-row">
-              <span class="msg-text">${escapeHtml(m.text)}</span>
-              <span class="msg-time">${escapeHtml(timeStr)}</span>
+          <div class="msg-wrapper ${isMine ? 'mine' : 'theirs'}">
+            <div class="msg-bubble ${sizeClass} ${isMine ? 'msg-mine' : 'msg-theirs'}" data-msg-id="${escapeHtml(m.id)}">
+              ${replyHtml}
+              <div class="msg-content-row">
+                <span class="msg-text">${escapeHtml(m.text)}</span>
+                <span class="msg-time">${escapeHtml(timeStr)}</span>
+              </div>
             </div>
+            ${reactionsHtml}
           </div>
         `);
       });
 
       box.innerHTML = htmlParts.join('');
+
+      box.querySelectorAll('.reaction-chip').forEach(chipEl => {
+        const msgId = chipEl.getAttribute('data-react-msg-id');
+        const emoji = chipEl.getAttribute('data-react-emoji');
+        const msgObj = messages.find(x => x.id === msgId);
+        if (!msgObj || !emoji) return;
+
+        chipEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleReactionOnMessage(msgObj, emoji, false);
+        });
+      });
 
       box.querySelectorAll('.msg-bubble').forEach(el => {
         const msgId = el.getAttribute('data-msg-id');
@@ -1627,11 +1956,16 @@
         if (!msgObj) return;
 
         let pressTimer = null;
+        let longPressed = false;
+
         const startPress = () => {
+          longPressed = false;
           pressTimer = setTimeout(() => {
+            longPressed = true;
             openMessageMenu(msgObj);
-          }, 420);
+          }, 380);
         };
+
         const cancelPress = () => {
           if (pressTimer) {
             clearTimeout(pressTimer);
@@ -1643,6 +1977,13 @@
         el.addEventListener('pointerup', cancelPress);
         el.addEventListener('pointerleave', cancelPress);
         el.addEventListener('pointercancel', cancelPress);
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          cancelPress();
+          if (!longPressed) {
+            openMessageMenu(msgObj);
+          }
+        });
         el.addEventListener('contextmenu', (e) => {
           e.preventDefault();
           cancelPress();
@@ -1679,7 +2020,15 @@
           document.getElementById('peer-avatar').textContent = nextPeerAvatar;
         }
 
-        const serverMsgs = data.messages;
+        const localById = new Map(currentMessagesCache.map(m => [m.id, m]));
+        const serverMsgs = data.messages.map(srv => {
+          const prevLocal = localById.get(srv.id);
+          return {
+            ...srv,
+            reactions: mergeMessageReactions(prevLocal, srv)
+          };
+        });
+
         if (serverMsgs.length === 0 && currentMessagesCache.length > 0) {
           return;
         }
@@ -1696,16 +2045,30 @@
         });
 
         const merged = [...serverMsgs, ...localOnlyPending];
-        const prevIds = currentMessagesCache.map(x => `${x.id}:${x.text}:${x.timestamp || 0}`).join('|');
-        const nextIds = merged.map(x => `${x.id}:${x.text}:${x.timestamp || 0}`).join('|');
+        const prevSig = currentMessagesCache
+          .map(x => `${x.id}:${x.text}:${x.timestamp || 0}:${JSON.stringify(normalizeReactions(x.reactions, x))}`)
+          .join('|');
+        const nextSig = merged
+          .map(x => `${x.id}:${x.text}:${x.timestamp || 0}:${JSON.stringify(normalizeReactions(x.reactions, x))}`)
+          .join('|');
 
         currentMessagesCache = merged;
+        if (selectedMessage) {
+          const updatedSelected = currentMessagesCache.find(m => m.id === selectedMessage.id);
+          if (updatedSelected) {
+            selectedMessage = updatedSelected;
+            if (document.getElementById('msg-action-sheet').classList.contains('active')) {
+              renderSheetReactionsUI(selectedMessage);
+            }
+          }
+        }
+
         writeLocalDialog(currentUser.id, peerIdSnapshot, currentMessagesCache);
 
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
         markChatAsRead(currentUser.id, peerIdSnapshot, latestTs);
 
-        if (prevIds !== nextIds) {
+        if (prevSig !== nextSig) {
           renderMessages(currentMessagesCache, false);
         }
       } catch (e) {
@@ -1742,7 +2105,8 @@
         receiver_id: peerId,
         text,
         timestamp: nowTs,
-        reply_to: replySnapshot
+        reply_to: replySnapshot,
+        reactions: {}
       };
 
       input.value = '';
@@ -1769,7 +2133,10 @@
         .then(data => {
           if (data.message && data.message.id) {
             currentMessagesCache = currentMessagesCache.map(m =>
-              m.id === tempId ? data.message : m
+              m.id === tempId ? {
+                ...data.message,
+                reactions: mergeMessageReactions(m, data.message)
+              } : m
             );
             writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
           }
@@ -1778,17 +2145,91 @@
         .catch(() => {});
     }
 
-    /* --- МЕНЮ ПРИ ЗАЖАТИИ СООБЩЕНИЯ --- */
+    /* --- МЕНЮ И РЕАКЦИИ ПРИ НАЖАТИИ / ЗАЖАТИИ СООБЩЕНИЯ --- */
+    function renderSheetReactionsUI(msg) {
+      const reactionsMap = normalizeReactions(msg.reactions, msg);
+
+      document.querySelectorAll('#emoji-picker-row .emoji-pick-btn').forEach(btn => {
+        const em = btn.getAttribute('data-emoji');
+        const list = reactionsMap[em] || [];
+        const mineHere = currentUser && list.some(u => u.user_id === currentUser.id);
+        btn.classList.toggle('selected', Boolean(mineHere));
+      });
+
+      const summaryEl = document.getElementById('sheet-reactions-summary');
+      const entries = Object.entries(reactionsMap);
+      if (entries.length === 0) {
+        summaryEl.innerHTML = '';
+        return;
+      }
+
+      summaryEl.innerHTML = entries.map(([emoji, users]) => {
+        const names = users.map(u => escapeHtml(u.nickname)).join(', ');
+        return `
+          <div class="sheet-reaction-line">
+            <span>${escapeHtml(emoji)}</span>
+            <span><strong>${users.length}</strong> — ${names}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
     function openMessageMenu(msg) {
       selectedMessage = msg;
       const shortText = msg.text.length > 40 ? msg.text.slice(0, 40) + '...' : msg.text;
       document.getElementById('action-sheet-preview').textContent = `«${shortText}»`;
+      renderSheetReactionsUI(msg);
       document.getElementById('msg-action-sheet').classList.add('active');
     }
 
     function closeMessageMenu(event) {
       if (event && event.target !== event.currentTarget) return;
       document.getElementById('msg-action-sheet').classList.remove('active');
+    }
+
+    function toggleReactionOnSelected(emoji) {
+      if (!selectedMessage) return;
+      toggleReactionOnMessage(selectedMessage, emoji, true);
+    }
+
+    function toggleReactionOnMessage(msg, emoji, keepSheetOpen = false) {
+      if (!currentUser || !activePeer || !msg || !REACTION_EMOJIS.includes(emoji)) return;
+
+      const peerId = activePeer.id;
+      const updatedMsg = applyReactionToggleToMessage(msg, emoji, currentUser);
+
+      currentMessagesCache = currentMessagesCache.map(m =>
+        m.id === msg.id ? updatedMsg : m
+      );
+      if (selectedMessage && selectedMessage.id === msg.id) {
+        selectedMessage = updatedMsg;
+      }
+
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+      renderMessages(currentMessagesCache, false);
+
+      if (keepSheetOpen) {
+        renderSheetReactionsUI(updatedMsg);
+      }
+
+      const nextReactionsMap = normalizeReactions(updatedMsg.reactions, updatedMsg);
+      const myCurrentEmoji = REACTION_EMOJIS.find(em =>
+        (nextReactionsMap[em] || []).some(u => u.user_id === currentUser.id)
+      ) || null;
+
+      fetch('/api/messages/reaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          message_id: msg.id,
+          user_id: currentUser.id,
+          nickname: currentUser.nickname,
+          emoji: myCurrentEmoji,
+          toggled_emoji: emoji,
+          reactions: nextReactionsMap
+        })
+      }).catch(() => {});
     }
 
     function showCopyToast(text) {
@@ -2033,4 +2474,4 @@
     }
   </script>
 </body>
-</html>
+          </html>
