@@ -796,6 +796,40 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .copy-toast.active { display: block; }
 
+    /* Отдельные полноэкранные сцены */
+    .full-scene {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-main);
+      display: none;
+      flex-direction: column;
+      z-index: 48;
+      overflow-y: auto;
+    }
+
+    .full-scene.active { display: flex; }
+
+    .scene-body {
+      flex: 1;
+      padding: 18px 16px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .scene-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
     .action-sheet-overlay {
       position: fixed;
       inset: 0;
@@ -963,25 +997,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .settings-tabs-bar {
       display: flex;
       background: var(--bg-surface);
-      padding: 8px 12px;
-      gap: 6px;
+      padding: 8px 16px;
+      gap: 8px;
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
 
     .settings-tab-btn {
       flex: 1;
-      padding: 10px 6px;
+      padding: 11px;
       border-radius: 12px;
       border: none;
       background: var(--bg-main);
       color: #94a3b8;
       font-weight: 700;
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .settings-tab-btn.active { background: var(--accent); color: var(--accent-text); }
@@ -1161,7 +1192,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <button type="button" class="fab-create-group" id="fab-create-group" onclick="openCreateGroupModal()" title="Создать группу">✏️</button>
+    <button type="button" class="fab-create-group" id="fab-create-group" onclick="openCreateGroupScene()" title="Создать группу">✏️</button>
   </div>
 
   <section id="search-view">
@@ -1185,7 +1216,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="settings-tabs-bar">
       <button class="settings-tab-btn active" id="stab-main" onclick="switchSettingsTab('main')">Основная</button>
       <button class="settings-tab-btn" id="stab-custom" onclick="switchSettingsTab('custom')">Кастомизация</button>
-      <button class="settings-tab-btn" id="stab-privacy" onclick="switchSettingsTab('privacy')">Конфиденциальность</button>
     </div>
 
     <div class="settings-content">
@@ -1210,30 +1240,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       <div class="settings-section" id="ssec-custom">
         <div class="input-group">
-          <label>Размер сообщений</label>
-          <div class="size-selector">
-            <button type="button" class="size-btn" data-size="small" onclick="selectMsgSize('small')">Маленький</button>
-            <button type="button" class="size-btn" data-size="medium" onclick="selectMsgSize('medium')">Средний</button>
-            <button type="button" class="size-btn" data-size="large" onclick="selectMsgSize('large')">Большой</button>
-          </div>
-        </div>
-
-        <div class="preview-box">
-          <div class="preview-label">Предпросмотр сообщения:</div>
-          <div class="msg-bubble msg-mine" id="custom-preview-bubble" style="max-width: 100%; cursor: default;">
-            <div class="msg-content-row">
-              <span class="msg-text">Привет! Голубиная почта летит быстро</span>
-              <span class="msg-time">12:00</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="ok-msg" id="custom-saved-msg"></div>
-        <button class="primary-btn" onclick="saveCustomization()">Применить кастомизацию</button>
-      </div>
-
-      <div class="settings-section" id="ssec-privacy">
-        <div class="input-group">
           <label>Тема приложения</label>
           <div class="theme-selector">
             <button type="button" class="theme-btn" data-theme="blue" onclick="selectAppTheme('blue')">
@@ -1255,18 +1261,108 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           </div>
         </div>
 
+        <div class="input-group">
+          <label>Размер сообщений</label>
+          <div class="size-selector">
+            <button type="button" class="size-btn" data-size="small" onclick="selectMsgSize('small')">Маленький</button>
+            <button type="button" class="size-btn" data-size="medium" onclick="selectMsgSize('medium')">Средний</button>
+            <button type="button" class="size-btn" data-size="large" onclick="selectMsgSize('large')">Большой</button>
+          </div>
+        </div>
+
         <div class="preview-box">
-          <div class="preview-label">Предпросмотр темы:</div>
-          <div class="msg-bubble msg-mine" style="max-width: 100%; cursor: default;">
+          <div class="preview-label">Предпросмотр сообщения:</div>
+          <div class="msg-bubble msg-mine" id="custom-preview-bubble" style="max-width: 100%; cursor: default;">
             <div class="msg-content-row">
-              <span class="msg-text">Так выглядит выбранная тема приложения</span>
+              <span class="msg-text">Привет! Голубиная почта летит быстро</span>
               <span class="msg-time">12:00</span>
             </div>
           </div>
         </div>
 
-        <div class="ok-msg" id="privacy-saved-msg"></div>
-        <button class="primary-btn" onclick="savePrivacySettings()">Сохранить настройки</button>
+        <div class="ok-msg" id="custom-saved-msg"></div>
+        <button class="primary-btn" onclick="saveCustomization()">Применить кастомизацию</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Отдельная сцена создания группы -->
+  <section id="create-group-scene" class="full-scene">
+    <header class="top-bar">
+      <div class="user-badge">
+        <button class="back-btn" onclick="closeCreateGroupScene()">← Назад</button>
+        <div class="nickname-row"><span>Создать группу</span></div>
+      </div>
+    </header>
+
+    <div class="scene-body">
+      <div class="scene-card">
+        <div class="input-group">
+          <label>Название группы</label>
+          <input type="text" id="new-group-name" placeholder="Например: Сквад" maxlength="32" />
+        </div>
+        <div class="input-group">
+          <label>Иконка группы</label>
+          <div class="group-icon-grid" id="create-group-icon-grid"></div>
+        </div>
+        <div class="input-group">
+          <label>Участники (с кем уже переписывались)</label>
+          <div class="member-select-list" id="create-group-members"></div>
+        </div>
+        <div class="error-msg" id="create-group-error"></div>
+        <button type="button" class="sheet-btn green" onclick="submitCreateGroup()">Создать группу</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Отдельная сцена настроек чата (группа или 1 на 1) -->
+  <section id="chat-settings-scene" class="full-scene">
+    <header class="top-bar">
+      <div class="user-badge">
+        <button class="back-btn" onclick="closeChatSettingsScene()">← Назад</button>
+        <div class="nickname-row"><span id="chat-scene-title">Настройки чата</span></div>
+      </div>
+    </header>
+
+    <div class="scene-body">
+      <!-- Сцена настроек чата 1 на 1 -->
+      <div class="scene-card" id="direct-chat-settings-card" style="display:none;">
+        <div class="group-info-card" id="direct-chat-info"></div>
+        <button type="button" class="sheet-btn delete" onclick="deleteDirectChat()">🗑️ Удалить чат</button>
+      </div>
+
+      <!-- Сцена настроек группы -->
+      <div class="scene-card" id="group-chat-settings-card" style="display:none;">
+        <div class="group-info-card" id="group-readonly-info" style="display:none;"></div>
+
+        <div id="group-owner-controls" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="input-group">
+            <label>Название группы</label>
+            <input type="text" id="edit-group-name" maxlength="32" />
+          </div>
+
+          <div class="input-group">
+            <label>Иконка группы</label>
+            <div class="group-icon-grid" id="edit-group-icon-grid"></div>
+          </div>
+
+          <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
+
+          <div class="input-group">
+            <label>Участники группы (мут / удаление)</label>
+            <div class="member-select-list" id="current-group-members-list"></div>
+          </div>
+
+          <div class="input-group">
+            <label>Добавить участников</label>
+            <div class="member-select-list" id="add-group-members-list"></div>
+          </div>
+          <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
+
+          <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
+        </div>
+
+        <button type="button" class="sheet-btn warn" onclick="leaveCurrentGroup()">🚪 Выйти из группы</button>
       </div>
     </div>
   </section>
@@ -1276,7 +1372,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="user-badge">
         <button class="back-btn" onclick="closeChatRoom()">←</button>
         <div class="avatar-circle" id="peer-avatar">🕊️</div>
-        <div id="peer-header-info" onclick="handlePeerHeaderClick()">
+        <div id="peer-header-info" class="peer-title-clickable" onclick="handlePeerHeaderClick()">
           <div class="nickname-row">
             <span id="peer-nick">Пользователь</span>
             <span id="peer-verified"></span>
@@ -1308,67 +1404,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       />
       <button type="submit" class="send-btn" onpointerdown="handleSendPointerDown(event)">➤</button>
     </form>
-  </div>
-
-  <!-- Модалка создания группы -->
-  <div class="action-sheet-overlay" id="create-group-modal" onclick="closeCreateGroupModal(event)">
-    <div class="action-sheet" onclick="event.stopPropagation()">
-      <div class="action-sheet-title">Создать группу</div>
-      <div class="input-group">
-        <label>Название группы</label>
-        <input type="text" id="new-group-name" placeholder="Например: Сквад" maxlength="32" />
-      </div>
-      <div class="input-group">
-        <label>Иконка группы</label>
-        <div class="group-icon-grid" id="create-group-icon-grid"></div>
-      </div>
-      <div class="input-group">
-        <label>Участники (с кем уже переписывались)</label>
-        <div class="member-select-list" id="create-group-members"></div>
-      </div>
-      <div class="error-msg" id="create-group-error"></div>
-      <button type="button" class="sheet-btn green" onclick="submitCreateGroup()">Создать группу</button>
-      <button type="button" class="sheet-btn cancel" onclick="closeCreateGroupModal()">Отмена</button>
-    </div>
-  </div>
-
-  <!-- Меню управления/просмотра группы -->
-  <div class="action-sheet-overlay" id="group-manage-modal" onclick="closeGroupManageModal(event)">
-    <div class="action-sheet" onclick="event.stopPropagation()">
-      <div class="action-sheet-title" id="group-manage-title">Группа</div>
-
-      <div class="group-info-card" id="group-readonly-info" style="display:none;"></div>
-
-      <div id="group-owner-controls" style="display:flex; flex-direction:column; gap:10px;">
-        <div class="input-group">
-          <label>Название группы</label>
-          <input type="text" id="edit-group-name" maxlength="32" />
-        </div>
-
-        <div class="input-group">
-          <label>Иконка группы</label>
-          <div class="group-icon-grid" id="edit-group-icon-grid"></div>
-        </div>
-
-        <button type="button" class="sheet-btn green" onclick="saveGroupDetails()">Сохранить название и иконку</button>
-
-        <div class="input-group">
-          <label>Участники группы (мут / удаление)</label>
-          <div class="member-select-list" id="current-group-members-list"></div>
-        </div>
-
-        <div class="input-group">
-          <label>Добавить участников</label>
-          <div class="member-select-list" id="add-group-members-list"></div>
-        </div>
-        <button type="button" class="sheet-btn reply" onclick="addSelectedMembersToGroup()">Добавить выбранных</button>
-
-        <button type="button" class="sheet-btn delete" onclick="deleteCurrentGroup()">Удалить группу</button>
-      </div>
-
-      <button type="button" class="sheet-btn warn" onclick="leaveCurrentGroup()">🚪 Выйти из группы</button>
-      <button type="button" class="sheet-btn cancel" onclick="closeGroupManageModal()">Закрыть</button>
-    </div>
   </div>
 
   <div class="action-sheet-overlay" id="msg-action-sheet" onclick="closeMessageMenu(event)">
@@ -1423,6 +1458,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
+
+    function isAnyOverlaySceneOpen() {
+      return Boolean(
+        document.getElementById('create-group-scene').classList.contains('active') ||
+        document.getElementById('chat-settings-scene').classList.contains('active') ||
+        document.getElementById('settings-screen').classList.contains('active') ||
+        document.getElementById('search-view').classList.contains('active')
+      );
+    }
 
     function isGroupOwner(groupObj) {
       if (!groupObj || !currentUser || !currentUser.id) return false;
@@ -1521,12 +1565,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function updateFabVisibility() {
       const fab = document.getElementById('fab-create-group');
       if (!fab) return;
-      const show = Boolean(
-        currentUser &&
-        !activePeer &&
-        !document.getElementById('search-view').classList.contains('active') &&
-        !document.getElementById('settings-screen').classList.contains('active')
-      );
+      const show = Boolean(currentUser && !activePeer && !isAnyOverlaySceneOpen());
       fab.classList.toggle('visible', show);
     }
 
@@ -1604,7 +1643,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       } catch (e) { return []; }
     }
     function writeLocalDialog(uid, pid, msgs) {
-      if (!Array.isArray(msgs) || msgs.length === 0) return;
+      if (!Array.isArray(msgs)) return;
       try { localStorage.setItem(getLocalDialogKey(uid, pid), JSON.stringify(msgs)); } catch (e) {}
     }
 
@@ -1738,6 +1777,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       updateHeaderUI();
       closeSearchScreen();
       closeSettingsScreen();
+      closeCreateGroupScene();
+      closeChatSettingsScene();
       updateFabVisibility();
 
       const cachedChats = readChatsCache(currentUser.id);
@@ -1746,7 +1787,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       if (chatsListPollTimer) clearInterval(chatsListPollTimer);
       chatsListPollTimer = setInterval(() => {
-        if (currentUser && !activePeer && !document.getElementById('settings-screen').classList.contains('active')) {
+        if (currentUser && !activePeer && !isAnyOverlaySceneOpen()) {
           loadChatsList();
         }
       }, 700);
@@ -1939,19 +1980,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function applyGroupRoomState() {
       const isGroup = Boolean(activePeer && activePeer.isGroup);
       const subEl = document.getElementById('peer-sub');
-      const titleEl = document.getElementById('peer-header-info');
       const noticeEl = document.getElementById('muted-chat-notice');
       const formEl = document.getElementById('chat-form');
 
       if (!isGroup) {
         subEl.style.display = 'none';
-        titleEl.classList.remove('peer-title-clickable');
         noticeEl.style.display = 'none';
         formEl.style.display = 'flex';
         return;
       }
 
-      titleEl.classList.add('peer-title-clickable');
       const memberCount = Array.isArray(activePeer.members) ? activePeer.members.length : 0;
       subEl.textContent = `Участников: ${memberCount}`;
       subEl.style.display = 'block';
@@ -1962,11 +2000,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function handlePeerHeaderClick() {
-      if (!activePeer || !activePeer.isGroup) return;
-      openGroupManageModal(activePeer);
+      if (!activePeer) return;
+      openChatSettingsScene(activePeer);
     }
 
-    function openCreateGroupModal() {
+    /* Сцена создания группы */
+    function openCreateGroupScene() {
       if (!currentUser) return;
       selectedNewGroupIcon = '👥';
       document.getElementById('new-group-name').value = '';
@@ -1993,7 +2032,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         `).join('');
       }
 
-      document.getElementById('create-group-modal').classList.add('active');
+      document.getElementById('create-group-scene').classList.add('active');
+      updateFabVisibility();
     }
 
     function pickNewGroupIcon(ic, btnEl) {
@@ -2002,9 +2042,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (btnEl) btnEl.classList.add('selected');
     }
 
-    function closeCreateGroupModal(event) {
-      if (event && event.target !== event.currentTarget) return;
-      document.getElementById('create-group-modal').classList.remove('active');
+    function closeCreateGroupScene() {
+      document.getElementById('create-group-scene').classList.remove('active');
+      updateFabVisibility();
+      if (currentUser && !activePeer) loadChatsList();
     }
 
     async function submitCreateGroup() {
@@ -2037,7 +2078,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           errEl.textContent = data.error || 'Не удалось создать группу';
           return;
         }
-        document.getElementById('create-group-modal').classList.remove('active');
+        document.getElementById('create-group-scene').classList.remove('active');
         await loadChatsList();
         if (data.group) {
           openChatWithUser({
@@ -2056,6 +2097,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
+    /* Отдельная сцена настроек чата (1 на 1 и группы) */
     function syncGroupDataFromServer(serverGroup) {
       if (!serverGroup) return;
       if (editingGroupState && editingGroupState.id === serverGroup.id) {
@@ -2079,33 +2121,53 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    function openGroupManageModal(groupObj) {
-      editingGroupState = { ...groupObj };
-      selectedEditGroupIcon = groupObj.avatar || '👥';
-      const canEdit = isGroupOwner(groupObj);
+    function openChatSettingsScene(peerObj) {
+      const directCard = document.getElementById('direct-chat-settings-card');
+      const groupCard = document.getElementById('group-chat-settings-card');
+
+      if (!peerObj.isGroup) {
+        editingGroupState = null;
+        directCard.style.display = 'flex';
+        groupCard.style.display = 'none';
+        document.getElementById('chat-scene-title').textContent = `Чат: ${peerObj.nickname}`;
+        document.getElementById('direct-chat-info').innerHTML = `
+          <div><strong>Собеседник:</strong> ${escapeHtml(peerObj.avatar || '🕊️')} ${escapeHtml(peerObj.nickname)}</div>
+          <div><strong>Тип чата:</strong> Личный чат (1 на 1)</div>
+        `;
+        document.getElementById('chat-settings-scene').classList.add('active');
+        updateFabVisibility();
+        return;
+      }
+
+      directCard.style.display = 'none';
+      groupCard.style.display = 'flex';
+      editingGroupState = { ...peerObj };
+      selectedEditGroupIcon = peerObj.avatar || '👥';
+      const canEdit = isGroupOwner(peerObj);
 
       const readonlyEl = document.getElementById('group-readonly-info');
       const ownerControlsEl = document.getElementById('group-owner-controls');
 
       if (!canEdit) {
-        document.getElementById('group-manage-title').textContent = `${groupObj.avatar || '👥'} ${groupObj.nickname}`;
-        const memberCount = Array.isArray(groupObj.members) ? groupObj.members.length : 0;
-        const mutedForMe = isUserMutedInGroup(groupObj, currentUser?.id);
+        document.getElementById('chat-scene-title').textContent = `${peerObj.avatar || '👥'} ${peerObj.nickname}`;
+        const memberCount = Array.isArray(peerObj.members) ? peerObj.members.length : 0;
+        const mutedForMe = isUserMutedInGroup(peerObj, currentUser?.id);
         readonlyEl.innerHTML = `
-          <div><strong>Название:</strong> ${escapeHtml(groupObj.nickname)}</div>
+          <div><strong>Название:</strong> ${escapeHtml(peerObj.nickname)}</div>
           <div><strong>Участников:</strong> ${memberCount}</div>
           <div><strong>Статус:</strong> ${mutedForMe ? 'Вам запрещено писать сообщения' : 'Вы можете отправлять сообщения'}</div>
         `;
         readonlyEl.style.display = 'flex';
         ownerControlsEl.style.display = 'none';
-        document.getElementById('group-manage-modal').classList.add('active');
+        document.getElementById('chat-settings-scene').classList.add('active');
+        updateFabVisibility();
         return;
       }
 
       readonlyEl.style.display = 'none';
       ownerControlsEl.style.display = 'flex';
-      document.getElementById('group-manage-title').textContent = `Настройки группы: ${groupObj.nickname}`;
-      document.getElementById('edit-group-name').value = groupObj.nickname;
+      document.getElementById('chat-scene-title').textContent = `Настройки группы`;
+      document.getElementById('edit-group-name').value = peerObj.nickname;
 
       const iconGrid = document.getElementById('edit-group-icon-grid');
       iconGrid.innerHTML = GROUP_ICONS.map(ic => `
@@ -2113,14 +2175,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       `).join('');
 
       const currentMembersBox = document.getElementById('current-group-members-list');
-      const details = Array.isArray(groupObj.memberDetails) && groupObj.memberDetails.length > 0
-        ? groupObj.memberDetails
-        : (Array.isArray(groupObj.members) ? groupObj.members.map(mid => ({
+      const details = Array.isArray(peerObj.memberDetails) && peerObj.memberDetails.length > 0
+        ? peerObj.memberDetails
+        : (Array.isArray(peerObj.members) ? peerObj.members.map(mid => ({
             id: mid,
             nickname: mid === currentUser.id ? currentUser.nickname : mid,
             avatar: mid === currentUser.id ? currentUser.avatar : resolveAvatar(mid, null),
-            muted: (groupObj.mutedMembers || []).includes(mid),
-            isOwner: mid === (groupObj.ownerId || groupObj.owner_id)
+            muted: (peerObj.mutedMembers || []).includes(mid),
+            isOwner: mid === (peerObj.ownerId || peerObj.owner_id)
           })) : []);
 
       currentMembersBox.innerHTML = details.map(m => {
@@ -2159,7 +2221,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }).join('');
 
-      const currentMembers = Array.isArray(groupObj.members) ? groupObj.members : [];
+      const currentMembers = Array.isArray(peerObj.members) ? peerObj.members : [];
       const candidates = getDirectPartnersForGroup().filter(p => !currentMembers.includes(p.id));
       const addListEl = document.getElementById('add-group-members-list');
       if (candidates.length === 0) {
@@ -2176,7 +2238,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         `).join('');
       }
 
-      document.getElementById('group-manage-modal').classList.add('active');
+      document.getElementById('chat-settings-scene').classList.add('active');
+      updateFabVisibility();
     }
 
     function pickEditGroupIcon(ic, btnEl) {
@@ -2185,9 +2248,38 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (btnEl) btnEl.classList.add('selected');
     }
 
-    function closeGroupManageModal(event) {
-      if (event && event.target !== event.currentTarget) return;
-      document.getElementById('group-manage-modal').classList.remove('active');
+    function closeChatSettingsScene() {
+      document.getElementById('chat-settings-scene').classList.remove('active');
+      updateFabVisibility();
+      if (activePeer) fetchMessages();
+      else if (currentUser) loadChatsList();
+    }
+
+    async function deleteDirectChat() {
+      if (!activePeer || activePeer.isGroup || !currentUser) return;
+      const targetPeerId = activePeer.id;
+
+      document.getElementById('chat-settings-scene').classList.remove('active');
+      activePeer = null;
+      cancelReply();
+      document.getElementById('chat-room-view').classList.remove('active');
+      if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+
+      try { localStorage.removeItem(getLocalDialogKey(currentUser.id, targetPeerId)); } catch (e) {}
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== targetPeerId));
+      renderChatsListItems(readChatsCache(currentUser.id));
+      updateFabVisibility();
+
+      try {
+        await fetch('/api/chats/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ user_id: currentUser.id, peer_id: targetPeerId })
+        });
+        showCopyToast('Чат удалён');
+        loadChatsList();
+      } catch (e) {}
     }
 
     async function toggleSingleMemberMute(targetUserId, nextMuted) {
@@ -2207,7 +2299,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (res.ok && data.group) {
           syncGroupDataFromServer(data.group);
-          openGroupManageModal(editingGroupState);
+          openChatSettingsScene(editingGroupState);
           showCopyToast(nextMuted ? 'Участнику запрещено писать' : 'Участнику разрешено писать');
           loadChatsList();
         } else if (data.error) {
@@ -2233,7 +2325,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (res.ok && data.group) {
           syncGroupDataFromServer(data.group);
-          openGroupManageModal(editingGroupState);
+          openChatSettingsScene(editingGroupState);
           showCopyToast('Участник удалён из группы');
           loadChatsList();
         } else if (data.error) {
@@ -2264,7 +2356,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (res.ok && data.group) {
           syncGroupDataFromServer(data.group);
-          document.getElementById('group-manage-title').textContent = `Настройки группы: ${data.group.name}`;
           showCopyToast('Группа обновлена');
           loadChatsList();
         } else if (data.error) {
@@ -2294,7 +2385,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (res.ok && data.group) {
           syncGroupDataFromServer(data.group);
-          openGroupManageModal(editingGroupState);
+          openChatSettingsScene(editingGroupState);
           showCopyToast('Участники добавлены');
           loadChatsList();
         } else if (data.error) {
@@ -2306,7 +2397,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function leaveCurrentGroup() {
       if (!editingGroupState || !currentUser) return;
       const gid = editingGroupState.id;
-      document.getElementById('group-manage-modal').classList.remove('active');
+      document.getElementById('chat-settings-scene').classList.remove('active');
       writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
       renderChatsListItems(readChatsCache(currentUser.id));
       if (activePeer && activePeer.id === gid) {
@@ -2330,7 +2421,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function deleteCurrentGroup() {
       if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const gid = editingGroupState.id;
-      document.getElementById('group-manage-modal').classList.remove('active');
+      document.getElementById('chat-settings-scene').classList.remove('active');
       writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
       renderChatsListItems(readChatsCache(currentUser.id));
       if (activePeer && activePeer.id === gid) {
@@ -2791,7 +2882,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
-      document.getElementById('privacy-saved-msg').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
       selectedAvatar = resolveAvatar(currentUser.id, currentUser.avatar);
 
@@ -2845,10 +2935,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function switchSettingsTab(tab) {
       document.getElementById('stab-main').classList.toggle('active', tab === 'main');
       document.getElementById('stab-custom').classList.toggle('active', tab === 'custom');
-      document.getElementById('stab-privacy').classList.toggle('active', tab === 'privacy');
       document.getElementById('ssec-main').classList.toggle('active', tab === 'main');
       document.getElementById('ssec-custom').classList.toggle('active', tab === 'custom');
-      document.getElementById('ssec-privacy').classList.toggle('active', tab === 'privacy');
     }
 
     function selectMsgSize(size) { customization.msgSize = size; applyCustomizationToUI(); }
@@ -2858,13 +2946,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       customization.theme = themeName;
       localStorage.setItem('pigeon_customization', JSON.stringify(customization));
       applyCustomizationToUI();
-      document.getElementById('privacy-saved-msg').textContent = '';
-    }
-
-    function savePrivacySettings() {
-      localStorage.setItem('pigeon_customization', JSON.stringify(customization));
-      applyCustomizationToUI();
-      document.getElementById('privacy-saved-msg').textContent = 'Настройки темы сохранены!';
+      document.getElementById('custom-saved-msg').textContent = '';
     }
 
     function saveCustomization() {
@@ -2908,6 +2990,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       closeChatRoom();
       closeSettingsScreen();
       closeSearchScreen();
+      closeCreateGroupScene();
+      closeChatSettingsScene();
       updateFabVisibility();
       document.getElementById('main-screen').classList.remove('active');
       document.getElementById('auth-nick').value = '';
@@ -3228,6 +3312,25 @@ def delete_group():
     db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
     save_db(db)
     return jsonify({'ok': True, 'deleted_id': group_id})
+
+
+@app.route('/api/chats/delete', methods=['POST'])
+def delete_direct_chat():
+    data = request.get_json() or {}
+    user_id = (data.get('user_id') or '').strip()
+    peer_id = (data.get('peer_id') or '').strip()
+    if not user_id or not peer_id:
+        return jsonify({'error': 'Не указан пользователь или собеседник'}), 400
+
+    db = load_db(force_refresh=True)
+    db['messages'] = [
+        m for m in db['messages']
+        if m.get('group_id')
+        or not ((m.get('sender_id') == user_id and m.get('receiver_id') == peer_id)
+                or (m.get('sender_id') == peer_id and m.get('receiver_id') == user_id))
+    ]
+    save_db(db)
+    return jsonify({'ok': True, 'deleted_peer_id': peer_id})
 
 
 @app.route('/api/chats', methods=['GET'])
