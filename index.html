@@ -759,30 +759,6 @@
       color: #ffffff;
     }
 
-    .emoji-picker-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .msg-emoji-chip {
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      border: 2px solid transparent;
-      background: #0f172a;
-      font-size: 20px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      cursor: pointer;
-    }
-
-    .msg-emoji-chip.selected {
-      border-color: #38bdf8;
-      background: #1e3a5f;
-    }
-
     .preview-box {
       padding: 14px;
       border-radius: 14px;
@@ -793,16 +769,9 @@
       gap: 8px;
     }
 
-    .preview-header-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .preview-label {
       font-size: 12px;
       color: #94a3b8;
-    }
-
-    .preview-emoji-badge {
-      font-size: 18px;
     }
 
     .hint-text {
@@ -959,16 +928,8 @@
           </div>
         </div>
 
-        <div class="input-group">
-          <label>Эмодзи оформления</label>
-          <div class="emoji-picker-row" id="msg-emoji-row"></div>
-        </div>
-
         <div class="preview-box">
-          <div class="preview-header-row">
-            <span>Предпросмотр сообщения:</span>
-            <span class="preview-emoji-badge" id="custom-preview-emoji">🕊️</span>
-          </div>
+          <div class="preview-label">Предпросмотр сообщения:</div>
           <div class="msg-bubble msg-mine" id="custom-preview-bubble" style="max-width: 100%; cursor: default;">
             Привет! Голубиная почта летит быстро
           </div>
@@ -991,7 +952,6 @@
           <span id="peer-verified"></span>
         </div>
       </div>
-      <div class="preview-emoji-badge" id="chat-theme-emoji" title="Эмодзи оформления">🕊️</div>
     </header>
 
     <div class="chat-messages" id="chat-messages"></div>
@@ -1037,13 +997,11 @@
     let selectedMessage = null;
     let replyingToMessage = null;
     let selectedAvatar = '🕊️';
-    let lastLocalSendTime = 0;
     let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     let viewportShrankOnFocus = false;
 
     let customization = {
-      msgSize: 'medium',
-      msgEmoji: '🕊️'
+      msgSize: 'medium'
     };
 
     const ALLOWED_AVATARS = [
@@ -1051,8 +1009,6 @@
       '😎', '👻', '🔥', '⭐', '🎮', '💎',
       '🍕', '⚡', '👑', '🎨', '🍐'
     ];
-
-    const MSG_EMOJIS = ['🕊️', '🔥', '💎', '⚡', '🍐', '🎩', '🦜', '🐗'];
 
     const CHECKMARK_SVG = `
       <span class="verified-badge" title="Подтверждённый аккаунт">
@@ -1062,7 +1018,6 @@
       </span>
     `;
 
-    // Точный расчёт отступа клавиатуры без лишнего подъёма и без недоезда
     function syncKeyboardLayout() {
       const chatRoom = document.getElementById('chat-room-view');
       const input = document.getElementById('chat-message-input');
@@ -1078,7 +1033,6 @@
           viewportShrankOnFocus = true;
           pad = deltaFromBase;
         } else if (isFocused && !viewportShrankOnFocus) {
-          // Фоллбэк только если браузер вообще не сжал viewport при открытой клавиатуре
           pad = 220;
         }
       } else {
@@ -1143,35 +1097,19 @@
           if (['small', 'medium', 'large'].includes(parsed.msgSize)) {
             customization.msgSize = parsed.msgSize;
           }
-          if (MSG_EMOJIS.includes(parsed.msgEmoji)) {
-            customization.msgEmoji = parsed.msgEmoji;
-          }
         }
       } catch (e) {}
     }
 
     function applyCustomizationToUI() {
       const bubble = document.getElementById('custom-preview-bubble');
-      const emojiEl = document.getElementById('custom-preview-emoji');
-      const chatThemeEmoji = document.getElementById('chat-theme-emoji');
-
       if (bubble) {
         bubble.classList.remove('msg-size-small', 'msg-size-medium', 'msg-size-large');
         bubble.classList.add(`msg-size-${customization.msgSize}`);
       }
-      if (emojiEl) {
-        emojiEl.textContent = customization.msgEmoji;
-      }
-      if (chatThemeEmoji) {
-        chatThemeEmoji.textContent = customization.msgEmoji;
-      }
 
       document.querySelectorAll('.size-btn').forEach(btn => {
         btn.classList.toggle('selected', btn.dataset.size === customization.msgSize);
-      });
-
-      document.querySelectorAll('.msg-emoji-chip').forEach(chip => {
-        chip.classList.toggle('selected', chip.dataset.emoji === customization.msgEmoji);
       });
     }
 
@@ -1213,20 +1151,6 @@
     window.addEventListener('DOMContentLoaded', () => {
       initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       loadCustomization();
-
-      const emojiRow = document.getElementById('msg-emoji-row');
-      MSG_EMOJIS.forEach(em => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'msg-emoji-chip';
-        btn.dataset.emoji = em;
-        btn.textContent = em;
-        btn.onclick = () => {
-          customization.msgEmoji = em;
-          applyCustomizationToUI();
-        };
-        emojiRow.appendChild(btn);
-      });
       applyCustomizationToUI();
 
       setTimeout(async () => {
@@ -1243,6 +1167,8 @@
             });
             const data = await res.json();
             if (res.ok && data.user) {
+              const localAv = localStorage.getItem(`pigeon_avatar_${data.user.id}`);
+              if (localAv) data.user.avatar = localAv;
               enterApp(data.user);
               return;
             }
@@ -1284,6 +1210,8 @@
         }
 
         localStorage.setItem('pigeon_user_id', data.user.id);
+        const localAv = localStorage.getItem(`pigeon_avatar_${data.user.id}`);
+        if (localAv) data.user.avatar = localAv;
         enterApp(data.user);
       } catch (err) {
         errorEl.textContent = 'Нет связи с сервером';
@@ -1292,7 +1220,7 @@
 
     function enterApp(user) {
       currentUser = user;
-      selectedAvatar = user.avatar;
+      selectedAvatar = user.avatar || '🕊️';
 
       document.getElementById('auth-screen').classList.remove('active');
       document.getElementById('main-screen').classList.add('active');
@@ -1304,7 +1232,8 @@
     }
 
     function updateHeaderUI() {
-      document.getElementById('header-avatar').textContent = currentUser.avatar;
+      if (!currentUser) return;
+      document.getElementById('header-avatar').textContent = currentUser.avatar || '🕊️';
       document.getElementById('header-nick').textContent = currentUser.nickname;
       document.getElementById('header-verified').style.display =
         currentUser.verified ? 'inline-flex' : 'none';
@@ -1501,12 +1430,14 @@
         const data = await res.json();
         if (!activePeer || activePeer.id !== peerIdSnapshot) return;
 
-        if (Date.now() - lastLocalSendTime < 2500) {
-          return;
-        }
+        const serverMsgs = Array.isArray(data.messages) ? data.messages : [];
+        const localOnlyPending = currentMessagesCache.filter(
+          localMsg => String(localMsg.id).startsWith('msg_') &&
+          !serverMsgs.some(srv => srv.text === localMsg.text && Math.abs((srv.timestamp || 0) - (localMsg.timestamp || 0)) < 15000)
+        );
 
-        const serverMsgs = data.messages || [];
-        currentMessagesCache = serverMsgs;
+        const merged = [...serverMsgs, ...localOnlyPending];
+        currentMessagesCache = merged;
         writeLocalDialog(currentUser.id, peerIdSnapshot, currentMessagesCache);
         renderMessages(currentMessagesCache);
       } catch (e) {}
@@ -1542,7 +1473,6 @@
         reply_to: replySnapshot
       };
 
-      lastLocalSendTime = Date.now();
       input.value = '';
       cancelReply();
 
@@ -1681,7 +1611,7 @@
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
       document.getElementById('settings-nick').value = currentUser.nickname;
-      selectedAvatar = currentUser.avatar;
+      selectedAvatar = currentUser.avatar || '🕊️';
 
       const weekMs = 7 * 24 * 60 * 60 * 1000;
       const passed = Date.now() - (currentUser.lastNickChange || 0);
@@ -1708,6 +1638,11 @@
           selectedAvatar = emoji;
           document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
           btn.classList.add('selected');
+
+          // Сразу меняем аватарку в интерфейсе при выборе
+          currentUser.avatar = emoji;
+          localStorage.setItem(`pigeon_avatar_${currentUser.id}`, emoji);
+          updateHeaderUI();
         };
         grid.appendChild(btn);
       });
@@ -1749,6 +1684,12 @@
       errorEl.textContent = '';
       okEl.textContent = '';
 
+      // Моментально применяем выбранную аватарку на клиенте
+      currentUser.avatar = selectedAvatar;
+      localStorage.setItem(`pigeon_avatar_${currentUser.id}`, selectedAvatar);
+      updateHeaderUI();
+      okEl.textContent = 'Профиль обновлён!';
+
       try {
         const res = await fetch('/api/update-profile', {
           method: 'POST',
@@ -1762,15 +1703,17 @@
         const data = await res.json();
 
         if (!res.ok) {
-          errorEl.textContent = data.error || 'Ошибка сохранения';
+          errorEl.textContent = data.error || 'Ошибка сохранения никнейма на сервере';
           return;
         }
 
-        currentUser = data.user;
+        currentUser = {
+          ...data.user,
+          avatar: selectedAvatar
+        };
         updateHeaderUI();
-        okEl.textContent = 'Профиль обновлён!';
       } catch (err) {
-        errorEl.textContent = 'Ошибка соединения с сервером';
+        errorEl.textContent = 'Аватарка сохранена локально, но нет связи с сервером';
       }
     }
 
@@ -1795,4 +1738,4 @@
     }
   </script>
 </body>
-                                                                                      </html>
+</html>
