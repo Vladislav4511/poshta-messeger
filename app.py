@@ -1770,16 +1770,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`;
     }
 
-    function getLastReadKey(uid, pid) { return `pigeon_last_read_${uid}_${pid}`; }
-    function getLastReadTime(uid, pid) {
-      const raw = localStorage.getItem(getLastReadKey(uid, pid));
+    function getChatStoragePrefix(pid, isGroup) {
+      return `${isGroup ? 'grp_' : 'dm_'}${String(pid || '').trim()}`;
+    }
+
+    function getLastReadKey(uid, pid, isGroup = false) {
+      return `pigeon_last_read_${uid}_${getChatStoragePrefix(pid, isGroup)}`;
+    }
+
+    function getLastReadTime(uid, pid, isGroup = false) {
+      const raw = localStorage.getItem(getLastReadKey(uid, pid, isGroup));
       return raw ? Number(raw) || 0 : 0;
     }
 
-    function markChatAsRead(uid, pid, latestTs = Date.now()) {
+    function markChatAsRead(uid, pid, latestTs = Date.now(), isGroup = false) {
       if (!uid || !pid) return;
-      const nextVal = Math.max(getLastReadTime(uid, pid), Number(latestTs) || Date.now());
-      localStorage.setItem(getLastReadKey(uid, pid), String(nextVal));
+      const nextVal = Math.max(getLastReadTime(uid, pid, isGroup), Number(latestTs) || Date.now());
+      localStorage.setItem(getLastReadKey(uid, pid, isGroup), String(nextVal));
     }
 
     function getChatsCacheKey(uid) { return `pigeon_chats_cache_${uid}`; }
@@ -1962,16 +1969,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       });
     }
 
-    function getLocalDialogKey(uid, pid) { return `pigeon_dialog_${uid}_${pid}`; }
-    function readLocalDialog(uid, pid) {
+    function getLocalDialogKey(uid, pid, isGroup = false) {
+      return `pigeon_dialog_${uid}_${getChatStoragePrefix(pid, isGroup)}`;
+    }
+
+    function readLocalDialog(uid, pid, isGroup = false) {
       try {
-        const parsed = JSON.parse(localStorage.getItem(getLocalDialogKey(uid, pid)) || '[]');
+        const parsed = JSON.parse(localStorage.getItem(getLocalDialogKey(uid, pid, isGroup)) || '[]');
         return Array.isArray(parsed) ? parsed : [];
       } catch (e) { return []; }
     }
-    function writeLocalDialog(uid, pid, msgs) {
+
+    function writeLocalDialog(uid, pid, msgs, isGroup = false) {
       if (!Array.isArray(msgs)) return;
-      try { localStorage.setItem(getLocalDialogKey(uid, pid), JSON.stringify(msgs)); } catch (e) {}
+      try { localStorage.setItem(getLocalDialogKey(uid, pid, isGroup), JSON.stringify(msgs)); } catch (e) {}
     }
 
     function normalizeReactions(rawReactions) {
@@ -2226,9 +2237,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       } catch (e) {}
     }
 
-    function computeUnreadCount(peerId, messages) {
+    function computeUnreadCount(peerId, messages, isGroup = false) {
       if (!currentUser || !Array.isArray(messages) || messages.length === 0) return 0;
-      const lastRead = getLastReadTime(currentUser.id, peerId);
+      const lastRead = getLastReadTime(currentUser.id, peerId, isGroup);
       return messages.filter(m => m.sender_id !== currentUser.id && m.sender_id !== 'system' && (Number(m.timestamp) || 0) > lastRead).length;
     }
 
@@ -2270,13 +2281,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           mutedMembers: Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [],
           memberDetails: Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : []
         };
-        chatsListById.set(chatObj.id, chatObj);
+        const mapKey = getChatStoragePrefix(chatObj.id, isGroup);
+        chatsListById.set(mapKey, chatObj);
 
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
         const prefix = isGroup && c.lastSenderName && c.lastMessage && c.lastSenderId !== 'system' ? `${c.lastSenderName}: ` : '';
         return `
-          <div class="chat-list-item" data-chat-id="${escapeHtml(chatObj.id)}">
+          <div class="chat-list-item" data-chat-key="${escapeHtml(mapKey)}">
             <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
             <div class="chat-meta">
               <div class="nickname-row">
@@ -2292,8 +2304,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       listEl.querySelectorAll('.chat-list-item').forEach(el => {
         el.addEventListener('click', () => {
-          const cid = el.getAttribute('data-chat-id');
-          const target = chatsListById.get(String(cid));
+          const key = el.getAttribute('data-chat-key');
+          const target = chatsListById.get(String(key));
           if (target) openChatWithUser(target);
         });
       });
@@ -2318,7 +2330,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           renderChatsListItems(prevCached);
           return;
         }
-        const prevMap = new Map(prevCached.map(item => [item.id, item]));
+        const prevMap = new Map(prevCached.map(item => [getChatStoragePrefix(item.id, Boolean(item.isGroup)), item]));
 
         const normalized = data.chats.map(c => {
           const isGroup = Boolean(c.isGroup);
@@ -2328,9 +2340,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           );
           if (!isGroup && c.id && av) localStorage.setItem(`pigeon_avatar_${c.id}`, av);
 
-          const prevItem = prevMap.get(c.id);
-          const localMsgs = readLocalDialog(currentUser.id, c.id);
-          const localUnread = computeUnreadCount(c.id, localMsgs);
+          const chatKey = getChatStoragePrefix(c.id, isGroup);
+          const prevItem = prevMap.get(chatKey);
+          const localMsgs = readLocalDialog(currentUser.id, c.id, isGroup);
+          const localUnread = computeUnreadCount(c.id, localMsgs, isGroup);
           const prevUnread = prevItem && typeof prevItem.unreadCount === 'number' ? prevItem.unreadCount : 0;
 
           let unreadCount = Math.max(typeof c.unreadCount === 'number' ? c.unreadCount : 0, localUnread);
@@ -2339,14 +2352,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           const sentByMeRecently = c.lastSenderId === currentUser.id || (localMsgs.length > 0 && localMsgs[localMsgs.length - 1].sender_id === currentUser.id);
 
           if (sentByMeRecently) {
-            markChatAsRead(currentUser.id, c.id, Number(c.lastTimestamp) || Date.now());
+            markChatAsRead(currentUser.id, c.id, Number(c.lastTimestamp) || Date.now(), isGroup);
             unreadCount = 0;
-          } else if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || activePeer.id !== c.id)) {
+          } else if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) !== chatKey)) {
             unreadCount = Math.max(prevUnread + 1, 1);
-          } else if (prevItem && nextLastMsg === prevLastMsg && unreadCount === 0 && prevUnread > 0 && (!activePeer || activePeer.id !== c.id)) {
+          } else if (prevItem && nextLastMsg === prevLastMsg && unreadCount === 0 && prevUnread > 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) !== chatKey)) {
             unreadCount = prevUnread;
           }
-          if (activePeer && activePeer.id === c.id) {
+          if (activePeer && getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) === chatKey) {
             unreadCount = 0;
             activePeer.avatar = av;
             activePeer.nickname = c.nickname;
@@ -2361,7 +2374,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
             applyGroupRoomState();
           }
-          return { ...c, avatar: av, lastMessage: nextLastMsg, unreadCount };
+          return { ...c, isGroup, avatar: av, lastMessage: nextLastMsg, unreadCount };
         });
 
         writeChatsCache(currentUser.id, normalized);
@@ -2502,7 +2515,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         editingGroupState.mutedMembers = serverGroup.muted_members || [];
         editingGroupState.memberDetails = serverGroup.member_details || [];
       }
-      if (activePeer && activePeer.id === serverGroup.id) {
+      if (activePeer && activePeer.isGroup && activePeer.id === serverGroup.id) {
         activePeer.nickname = serverGroup.name;
         activePeer.avatar = cleanIcon;
         activePeer.ownerId = serverGroup.owner_id;
@@ -2686,8 +2699,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('chat-room-view').classList.remove('active');
       if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
 
-      try { localStorage.removeItem(getLocalDialogKey(currentUser.id, targetPeerId)); } catch (e) {}
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== targetPeerId));
+      try {
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, targetPeerId, false));
+        localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${targetPeerId}`);
+      } catch (e) {}
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.isGroup || c.id !== targetPeerId));
       renderChatsListItems(readChatsCache(currentUser.id));
       updateFabVisibility();
 
@@ -2749,7 +2765,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           openChatSettingsScene(editingGroupState);
           showCopyToast('Участник удалён из группы');
           loadChatsList();
-          if (activePeer && activePeer.id === editingGroupState.id) fetchMessages();
+          if (activePeer && activePeer.isGroup && activePeer.id === editingGroupState.id) fetchMessages();
         } else if (data.error) {
           showCopyToast(data.error);
         }
@@ -2810,7 +2826,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           openChatSettingsScene(editingGroupState);
           showCopyToast('Участники добавлены');
           loadChatsList();
-          if (activePeer && activePeer.id === editingGroupState.id) fetchMessages();
+          if (activePeer && activePeer.isGroup && activePeer.id === editingGroupState.id) fetchMessages();
         } else if (data.error) {
           showCopyToast(data.error);
         }
@@ -2820,7 +2836,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function leaveCurrentGroup() {
       if (!editingGroupState || !currentUser) return;
       const gid = editingGroupState.id;
-      const wasActiveRoom = Boolean(activePeer && activePeer.id === gid);
+      const wasActiveRoom = Boolean(activePeer && activePeer.isGroup && activePeer.id === gid);
 
       try {
         const res = await fetch('/api/groups/leave', {
@@ -2841,7 +2857,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       } catch (e) {}
 
       document.getElementById('chat-settings-scene').classList.remove('active');
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
+      try {
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true));
+        localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${gid}`);
+      } catch (e) {}
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => !(c.isGroup && c.id === gid)));
       renderChatsListItems(readChatsCache(currentUser.id));
       if (wasActiveRoom) {
         activePeer = null;
@@ -2857,9 +2877,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!editingGroupState || !currentUser || !isGroupOwner(editingGroupState)) return;
       const gid = editingGroupState.id;
       document.getElementById('chat-settings-scene').classList.remove('active');
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
+      try {
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true));
+        localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${gid}`);
+      } catch (e) {}
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => !(c.isGroup && c.id === gid)));
       renderChatsListItems(readChatsCache(currentUser.id));
-      if (activePeer && activePeer.id === gid) {
+      if (activePeer && activePeer.isGroup && activePeer.id === gid) {
         activePeer = null;
         document.getElementById('chat-room-view').classList.remove('active');
         if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
@@ -2878,12 +2902,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function openChatWithUser(peer) {
+      const isGroup = Boolean(peer.isGroup);
       activePeer = {
         ...peer,
-        isGroup: Boolean(peer.isGroup),
+        isGroup,
         ownerId: peer.ownerId || peer.owner_id || '',
         avatar: normalizeAvatar(
-          peer.avatar || (peer.isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null)),
+          peer.avatar || (isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null)),
           DEFAULT_AVATAR
         )
       };
@@ -2892,32 +2917,56 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       applyGroupRoomState();
       updateFabVisibility();
 
+      if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+      isFetchingMessages = false;
+      currentMessagesCache = [];
+      const msgBox = document.getElementById('chat-messages');
+      if (msgBox) msgBox.innerHTML = '';
+      try { localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${activePeer.id}`); } catch (e) {}
+
       document.getElementById('peer-avatar').innerHTML = renderAvatarContent(activePeer.avatar, DEFAULT_AVATAR);
       document.getElementById('peer-nick').textContent = activePeer.nickname;
       document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
       document.getElementById('chat-room-view').classList.add('active');
 
-      currentMessagesCache = readLocalDialog(currentUser.id, activePeer.id).map(m => ({
+      const scopedLocal = readLocalDialog(currentUser.id, activePeer.id, isGroup).map(m => ({
         ...m,
         reactions: normalizeReactions(m.reactions)
       }));
+      const filteredScopedLocal = scopedLocal.filter(m => {
+        if (isGroup) return String(m.group_id || '') === String(activePeer.id);
+        if (m.group_id) return false;
+        return (m.sender_id === currentUser.id && m.receiver_id === activePeer.id)
+          || (m.sender_id === activePeer.id && m.receiver_id === currentUser.id);
+      });
+
+      currentMessagesCache = filteredScopedLocal;
       const latestLocalTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-      markChatAsRead(currentUser.id, activePeer.id, latestLocalTs);
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).map(c => c.id === activePeer.id ? { ...c, unreadCount: 0 } : c));
+      markChatAsRead(currentUser.id, activePeer.id, latestLocalTs, isGroup);
+      const activeKey = getChatStoragePrefix(activePeer.id, isGroup);
+      writeChatsCache(
+        currentUser.id,
+        readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === activeKey ? { ...c, unreadCount: 0 } : c)
+      );
 
       renderMessages(currentMessagesCache, true);
       fetchMessages();
-      if (chatPollTimer) clearInterval(chatPollTimer);
       chatPollTimer = setInterval(fetchMessages, 350);
     }
 
     function closeChatRoom() {
       if (currentUser && activePeer) {
+        const isGroup = Boolean(activePeer.isGroup);
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-        markChatAsRead(currentUser.id, activePeer.id, latestTs);
-        writeChatsCache(currentUser.id, readChatsCache(currentUser.id).map(c => c.id === activePeer.id ? { ...c, unreadCount: 0 } : c));
+        markChatAsRead(currentUser.id, activePeer.id, latestTs, isGroup);
+        const activeKey = getChatStoragePrefix(activePeer.id, isGroup);
+        writeChatsCache(
+          currentUser.id,
+          readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === activeKey ? { ...c, unreadCount: 0 } : c)
+        );
       }
       activePeer = null;
+      currentMessagesCache = [];
       cancelReply();
       document.getElementById('chat-room-view').classList.remove('active');
       updateFabVisibility();
@@ -2955,7 +3004,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 140;
 
       if (!messages || messages.length === 0) {
-        if (!box.innerHTML.trim()) box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
+        box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
         return;
       }
 
@@ -3033,7 +3082,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function fetchMessages() {
       if (!currentUser || !activePeer || isFetchingMessages) return;
       isFetchingMessages = true;
-      const peerSnapshot = { ...activePeer };
+      const peerSnapshot = { ...activePeer, isGroup: Boolean(activePeer.isGroup) };
 
       try {
         const query = peerSnapshot.isGroup
@@ -3042,7 +3091,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const res = await fetch(query, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        if (!activePeer || activePeer.id !== peerSnapshot.id || !Array.isArray(data.messages)) return;
+        if (!activePeer || activePeer.id !== peerSnapshot.id || Boolean(activePeer.isGroup) !== peerSnapshot.isGroup || !Array.isArray(data.messages)) return;
 
         if (peerSnapshot.isGroup) {
           if (!data.group || !(data.group.members || []).includes(currentUser.id)) {
@@ -3054,8 +3103,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           syncGroupDataFromServer(data.group);
         }
 
-        const serverMsgs = data.messages.map(srv => ({ ...srv, reactions: normalizeReactions(srv.reactions) }));
-        if (serverMsgs.length === 0 && currentMessagesCache.length > 0 && !peerSnapshot.isGroup) return;
+        const serverMsgs = data.messages
+          .filter(srv => {
+            if (peerSnapshot.isGroup) return String(srv.group_id || '') === String(peerSnapshot.id);
+            if (srv.group_id) return false;
+            return (srv.sender_id === currentUser.id && srv.receiver_id === peerSnapshot.id)
+              || (srv.sender_id === peerSnapshot.id && srv.receiver_id === currentUser.id);
+          })
+          .map(srv => ({ ...srv, reactions: normalizeReactions(srv.reactions) }));
 
         const localOnlyPending = currentMessagesCache.filter(localMsg => {
           if (!String(localMsg.id).startsWith('msg_')) return false;
@@ -3076,11 +3131,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           }
         }
 
-        writeLocalDialog(currentUser.id, peerSnapshot.id, currentMessagesCache);
+        writeLocalDialog(currentUser.id, peerSnapshot.id, currentMessagesCache, peerSnapshot.isGroup);
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-        markChatAsRead(currentUser.id, peerSnapshot.id, latestTs);
+        markChatAsRead(currentUser.id, peerSnapshot.id, latestTs, peerSnapshot.isGroup);
 
-        if (prevSig !== nextSig) renderMessages(currentMessagesCache, false);
+        if (prevSig !== nextSig || !document.getElementById('chat-messages').children.length) {
+          renderMessages(currentMessagesCache, false);
+        }
       } catch (e) {}
       finally { isFetchingMessages = false; }
     }
@@ -3122,11 +3179,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       cancelReply();
 
       currentMessagesCache = [...currentMessagesCache, newMsg];
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
-      markChatAsRead(currentUser.id, peerId, nowTs + 1000);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
+      markChatAsRead(currentUser.id, peerId, nowTs + 1000, isGroup);
 
       const prevChats = readChatsCache(currentUser.id);
-      const existingIdx = prevChats.findIndex(c => c.id === peerId);
+      const targetKey = getChatStoragePrefix(peerId, isGroup);
+      const existingIdx = prevChats.findIndex(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === targetKey);
       const baseItem = existingIdx >= 0 ? prevChats[existingIdx] : {};
       const updatedChatItem = {
         ...baseItem,
@@ -3167,16 +3225,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(data => {
           if (data.error) {
             currentMessagesCache = currentMessagesCache.filter(m => m.id !== tempId);
-            writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
             renderMessages(currentMessagesCache, false);
             showCopyToast(data.error);
             return;
           }
           if (data.message && data.message.id) {
             const srvTs = Number(data.message.timestamp) || nowTs;
-            markChatAsRead(currentUser.id, peerId, srvTs + 1000);
+            markChatAsRead(currentUser.id, peerId, srvTs + 1000, isGroup);
             currentMessagesCache = currentMessagesCache.map(m => m.id === tempId ? { ...data.message, reactions: normalizeReactions(data.message.reactions) } : m);
-            writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
           }
         })
         .catch(() => {});
@@ -3220,12 +3278,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function toggleReactionOnMessage(msg, emoji, keepSheetOpen = false) {
       if (!currentUser || !activePeer || !msg || !REACTION_EMOJIS.includes(emoji)) return;
       const peerId = activePeer.id;
+      const isGroup = Boolean(activePeer.isGroup);
       const updatedMsg = applyReactionToggleToMessage(msg, emoji, currentUser);
 
       currentMessagesCache = currentMessagesCache.map(m => m.id === msg.id ? updatedMsg : m);
       if (selectedMessage && selectedMessage.id === msg.id) selectedMessage = updatedMsg;
 
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
       renderMessages(currentMessagesCache, false);
       if (keepSheetOpen) renderSheetReactionsUI(updatedMsg);
 
@@ -3298,10 +3357,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const targetId = selectedMessage.id;
       const peerId = activePeer.id;
+      const isGroup = Boolean(activePeer.isGroup);
       document.getElementById('msg-action-sheet').classList.remove('active');
 
       currentMessagesCache = currentMessagesCache.filter(m => m.id !== targetId);
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
       renderMessages(currentMessagesCache, false);
 
       if (!String(targetId).startsWith('msg_')) {
@@ -3966,7 +4026,7 @@ def get_messages():
         grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
         if not grp:
             return jsonify({'messages': [], 'group': None})
-        g_msgs = [m for m in db['messages'] if m.get('group_id') == group_id]
+        g_msgs = [m for m in db['messages'] if str(m.get('group_id') or '').strip() == group_id]
         g_msgs.sort(key=lambda x: x.get('timestamp', 0))
         return jsonify({'messages': g_msgs, 'group': serialize_group(grp, users_by_id)})
 
@@ -3975,7 +4035,7 @@ def get_messages():
 
     dialog = [
         m for m in db['messages']
-        if not m.get('group_id')
+        if not str(m.get('group_id') or '').strip()
         and ((m.get('sender_id') == user_id and m.get('receiver_id') == peer_id)
              or (m.get('sender_id') == peer_id and m.get('receiver_id') == user_id))
     ]
