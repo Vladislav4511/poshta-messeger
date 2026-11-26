@@ -506,8 +506,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
-    .peer-avatar-clickable { cursor: pointer; }
-    .peer-title-clickable { cursor: pointer; flex: 1; min-width: 0; }
+    .peer-header-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+      padding: 4px 0;
+    }
     .peer-sub { font-size: 11px; color: #94a3b8; font-weight: 500; }
 
     .verified-circle {
@@ -600,15 +611,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       background: #22c55e;
       color: #ffffff;
       font-size: 24px;
-      display: none;
+      display: flex;
       align-items: center;
       justify-content: center;
       box-shadow: 0 8px 24px rgba(34, 197, 94, 0.35);
       cursor: pointer;
-      z-index: 25;
+      z-index: 30;
     }
 
-    .fab-create-group.visible { display: flex; }
+    .fab-create-group.hidden-fab { display: none !important; }
     .fab-create-group:active { transform: scale(0.95); background: #16a34a; }
 
     .empty-workspace {
@@ -1341,7 +1352,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       <div class="top-actions">
         <button class="icon-btn" id="search-toggle-btn" onclick="openSearchScreen()" title="Поиск пользователей">🔍</button>
-        <button class="icon-btn" onclick="openSettingsScreen()" title="Настройки">⚙️</button>
+        <button class="icon-btn" id="open-settings-btn" onclick="openSettingsScreen()" title="Настройки">⚙️</button>
       </div>
     </header>
 
@@ -1568,14 +1579,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <header class="top-bar">
       <div class="user-badge">
         <button class="back-btn" onclick="closeChatRoom()">←</button>
-        <div class="avatar-circle peer-avatar-clickable" id="peer-avatar" onclick="handlePeerHeaderClick()">🦜</div>
-        <div id="peer-header-info" class="peer-title-clickable" onclick="handlePeerHeaderClick()">
-          <div class="nickname-row">
-            <span id="peer-nick">Пользователь</span>
-            <span id="peer-verified"></span>
+        <button type="button" class="peer-header-btn" id="peer-header-btn" onclick="handlePeerHeaderClick()">
+          <div class="avatar-circle" id="peer-avatar">🦜</div>
+          <div style="min-width:0; flex:1;">
+            <div class="nickname-row">
+              <span id="peer-nick">Пользователь</span>
+              <span id="peer-verified"></span>
+            </div>
+            <div class="peer-sub" id="peer-sub" style="display:none;"></div>
           </div>
-          <div class="peer-sub" id="peer-sub" style="display:none;"></div>
-        </div>
+        </button>
       </div>
     </header>
 
@@ -1635,6 +1648,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let isFetchingMessages = false;
     let isFetchingChatsList = false;
     let currentMessagesCache = [];
+    let chatsListById = new Map();
+    let searchUsersById = new Map();
     let selectedMessage = null;
     let replyingToMessage = null;
     let selectedAvatar = '🦜';
@@ -1652,6 +1667,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     const ALLOWED_THEMES = ['blue', 'green', 'red', 'yellow'];
     const ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡'];
     const DEFAULT_AVATAR = '🦜';
+    const DEFAULT_GROUP_ICON = '🦜';
     const MONTHS_RU = [
       'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
@@ -1876,8 +1892,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function updateFabVisibility() {
       const fab = document.getElementById('fab-create-group');
       if (!fab) return;
-      const show = Boolean(currentUser && !activePeer && !isAnyOverlaySceneOpen());
-      fab.classList.toggle('visible', show);
+      const shouldShow = Boolean(currentUser && !activePeer && !isAnyOverlaySceneOpen());
+      fab.classList.toggle('hidden-fab', !shouldShow);
     }
 
     function scrollChatToBottom(force = false) {
@@ -2017,6 +2033,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       loadCustomization();
       applyCustomizationToUI();
 
+      const fabBtn = document.getElementById('fab-create-group');
+      if (fabBtn) {
+        fabBtn.addEventListener('click', e => {
+          e.preventDefault();
+          openCreateGroupScene();
+        });
+      }
+
+      const peerHeaderBtn = document.getElementById('peer-header-btn');
+      if (peerHeaderBtn) {
+        peerHeaderBtn.addEventListener('click', e => {
+          e.preventDefault();
+          handlePeerHeaderClick();
+        });
+      }
+
       setTimeout(async () => {
         document.getElementById('splash-screen').classList.add('hidden');
         const savedId = localStorage.getItem('pigeon_user_id');
@@ -2038,7 +2070,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           } catch (e) {}
         }
         document.getElementById('auth-screen').classList.add('active');
-      }, 4000);
+      }, 3000);
     });
 
     function switchMode(mode) {
@@ -2107,7 +2139,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (currentUser && !activePeer && !isAnyOverlaySceneOpen()) {
           loadChatsList();
         }
-      }, 700);
+      }, 900);
     }
 
     function updateHeaderUI() {
@@ -2161,15 +2193,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const data = await res.json();
         if (!Array.isArray(data.users)) return;
         const users = data.users.filter(u => !currentUser || u.id !== currentUser.id);
+        searchUsersById.clear();
         if (users.length === 0) {
           resultsEl.innerHTML = '<div class="search-empty">Пользователи не найдены</div>';
           return;
         }
         resultsEl.innerHTML = users.map(u => {
           const av = resolveAvatar(u.id, u.avatar);
-          const safeObj = escapeHtml(JSON.stringify({ ...u, avatar: av, isGroup: false }));
+          const peerObj = { ...u, avatar: av, isGroup: false };
+          searchUsersById.set(String(u.id), peerObj);
           return `
-            <div class="search-user-item" onclick='openChatWithUser(${safeObj})'>
+            <div class="search-user-item" data-search-user-id="${escapeHtml(u.id)}">
               <div class="search-user-left">
                 <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
                 <div class="nickname-row">
@@ -2181,6 +2215,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             </div>
           `;
         }).join('');
+
+        resultsEl.querySelectorAll('.search-user-item').forEach(el => {
+          el.addEventListener('click', () => {
+            const uid = el.getAttribute('data-search-user-id');
+            const target = searchUsersById.get(String(uid));
+            if (target) openChatWithUser(target);
+          });
+        });
       } catch (e) {}
     }
 
@@ -2200,6 +2242,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const emptyEl = document.getElementById('empty-chats-placeholder');
       if (!listEl || !emptyEl) return;
 
+      chatsListById.clear();
+
       if (!Array.isArray(chats) || chats.length === 0) {
         listEl.innerHTML = '';
         emptyEl.style.display = 'flex';
@@ -2213,8 +2257,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null)),
           DEFAULT_AVATAR
         );
-        const safeObj = escapeHtml(JSON.stringify({
-          id: c.id,
+        const chatObj = {
+          id: String(c.id),
           nickname: c.nickname,
           avatar: av,
           verified: c.verified,
@@ -2225,12 +2269,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           members: Array.isArray(c.members) ? c.members : [],
           mutedMembers: Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [],
           memberDetails: Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : []
-        }));
+        };
+        chatsListById.set(chatObj.id, chatObj);
+
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
         const prefix = isGroup && c.lastSenderName && c.lastMessage && c.lastSenderId !== 'system' ? `${c.lastSenderName}: ` : '';
         return `
-          <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
+          <div class="chat-list-item" data-chat-id="${escapeHtml(chatObj.id)}">
             <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
             <div class="chat-meta">
               <div class="nickname-row">
@@ -2243,6 +2289,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           </div>
         `;
       }).join('');
+
+      listEl.querySelectorAll('.chat-list-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const cid = el.getAttribute('data-chat-id');
+          const target = chatsListById.get(String(cid));
+          if (target) openChatWithUser(target);
+        });
+      });
     }
 
     async function loadChatsList() {
@@ -2854,7 +2908,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       renderMessages(currentMessagesCache, true);
       fetchMessages();
       if (chatPollTimer) clearInterval(chatPollTimer);
-      chatPollTimer = setInterval(fetchMessages, 250);
+      chatPollTimer = setInterval(fetchMessages, 350);
     }
 
     function closeChatRoom() {
