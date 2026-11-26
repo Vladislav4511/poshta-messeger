@@ -206,7 +206,7 @@ def make_system_group_message(db: dict, group_id: str, text: str, ts_ms: int = N
 
 def serialize_group(grp: dict, users_by_id: dict) -> dict:
     members = list(grp.get('members') or [])
-    owner_id = grp.get('owner_id', '')
+    owner_id = str(grp.get('owner_id') or '').strip()
     if owner_id and owner_id not in members:
         members.insert(0, owner_id)
     muted_members = [m for m in (grp.get('muted_members') or []) if m in members and m != owner_id]
@@ -483,7 +483,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       flex-shrink: 0;
     }
 
-    .user-badge { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .user-badge { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 
     .avatar-circle {
       width: 38px;
@@ -507,7 +507,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
     .peer-avatar-clickable { cursor: pointer; }
-    .peer-title-clickable { cursor: pointer; }
+    .peer-title-clickable { cursor: pointer; flex: 1; min-width: 0; }
     .peer-sub { font-size: 11px; color: #94a3b8; font-weight: 500; }
 
     .verified-circle {
@@ -880,7 +880,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       background: var(--bg-main);
       display: none;
       flex-direction: column;
-      z-index: 48;
+      z-index: 60;
       overflow-y: auto;
     }
 
@@ -1687,16 +1687,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function isGroupOwner(groupObj) {
       if (!groupObj || !currentUser || !currentUser.id) return false;
-      return String(groupObj.ownerId || groupObj.owner_id || '') === String(currentUser.id);
+      const ownerRaw = groupObj.ownerId !== undefined && groupObj.ownerId !== null
+        ? groupObj.ownerId
+        : groupObj.owner_id;
+      return String(ownerRaw || '').trim() === String(currentUser.id || '').trim();
     }
 
     function isUserMutedInGroup(groupObj, userId) {
       if (!groupObj || !groupObj.isGroup) return false;
-      if (String(groupObj.ownerId || groupObj.owner_id || '') === String(userId)) return false;
+      const ownerRaw = groupObj.ownerId !== undefined && groupObj.ownerId !== null
+        ? groupObj.ownerId
+        : groupObj.owner_id;
+      if (String(ownerRaw || '').trim() === String(userId || '').trim()) return false;
       const mutedList = Array.isArray(groupObj.mutedMembers || groupObj.muted_members)
         ? (groupObj.mutedMembers || groupObj.muted_members)
         : [];
-      return mutedList.includes(userId);
+      return mutedList.map(x => String(x)).includes(String(userId));
     }
 
     function canDeleteSelectedMessage() {
@@ -2074,6 +2080,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function enterApp(user) {
       currentUser = {
         ...user,
+        id: String(user.id || '').trim(),
         avatar: resolveAvatar(user.id, user.avatar),
         dm_policy: user.dm_policy === 'nobody' ? 'nobody' : 'all'
       };
@@ -2214,10 +2221,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           badge_color: c.badge_color || null,
           dm_policy: c.dm_policy || 'all',
           isGroup,
-          ownerId: c.ownerId || '',
+          ownerId: c.ownerId || c.owner_id || '',
           members: Array.isArray(c.members) ? c.members : [],
-          mutedMembers: Array.isArray(c.mutedMembers) ? c.mutedMembers : [],
-          memberDetails: Array.isArray(c.memberDetails) ? c.memberDetails : []
+          mutedMembers: Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [],
+          memberDetails: Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : []
         }));
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
@@ -2291,10 +2298,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             activePeer.nickname = c.nickname;
             activePeer.badge_color = c.badge_color || null;
             activePeer.dm_policy = c.dm_policy || activePeer.dm_policy || 'all';
-            activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
+            activePeer.ownerId = c.ownerId || c.owner_id || activePeer.ownerId || '';
             activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
-            activePeer.mutedMembers = Array.isArray(c.mutedMembers) ? c.mutedMembers : [];
-            activePeer.memberDetails = Array.isArray(c.memberDetails) ? c.memberDetails : [];
+            activePeer.mutedMembers = Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [];
+            activePeer.memberDetails = Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : [];
             document.getElementById('peer-avatar').innerHTML = renderAvatarContent(av, DEFAULT_AVATAR);
             document.getElementById('peer-nick').textContent = c.nickname;
             document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
@@ -2454,49 +2461,36 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       }
     }
 
-    function openChatSettingsScene(peerObj) {
-      const directCard = document.getElementById('direct-chat-settings-card');
-      const groupCard = document.getElementById('group-chat-settings-card');
-
-      if (!peerObj.isGroup) {
-        editingGroupState = null;
-        directCard.style.display = 'flex';
-        groupCard.style.display = 'none';
-        document.getElementById('chat-scene-title').textContent = `Чат: ${peerObj.nickname}`;
-        document.getElementById('chat-settings-scene').classList.add('active');
-        updateFabVisibility();
-        return;
-      }
-
-      directCard.style.display = 'none';
-      groupCard.style.display = 'flex';
-      editingGroupState = { ...peerObj, avatar: normalizeAvatar(peerObj.avatar, DEFAULT_GROUP_ICON) };
+    function renderGroupSettingsBody(peerObj) {
+      editingGroupState = {
+        ...peerObj,
+        isGroup: true,
+        avatar: normalizeAvatar(peerObj.avatar, DEFAULT_GROUP_ICON)
+      };
       selectedEditGroupIcon = editingGroupState.avatar;
-      const canEdit = isGroupOwner(peerObj);
+      const canEdit = isGroupOwner(editingGroupState);
 
       const readonlyEl = document.getElementById('group-readonly-info');
       const ownerControlsEl = document.getElementById('group-owner-controls');
 
       if (!canEdit) {
-        document.getElementById('chat-scene-title').textContent = `${peerObj.nickname}`;
-        const memberCount = Array.isArray(peerObj.members) ? peerObj.members.length : 0;
-        const mutedForMe = isUserMutedInGroup(peerObj, currentUser?.id);
+        document.getElementById('chat-scene-title').textContent = `${editingGroupState.nickname}`;
+        const memberCount = Array.isArray(editingGroupState.members) ? editingGroupState.members.length : 0;
+        const mutedForMe = isUserMutedInGroup(editingGroupState, currentUser?.id);
         readonlyEl.innerHTML = `
-          <div><strong>Название:</strong> ${escapeHtml(peerObj.nickname)}</div>
+          <div><strong>Название:</strong> ${escapeHtml(editingGroupState.nickname)}</div>
           <div><strong>Участников:</strong> ${memberCount}</div>
           <div><strong>Статус:</strong> ${mutedForMe ? 'Вам запрещено писать сообщения' : 'Вы можете отправлять сообщения'}</div>
         `;
         readonlyEl.style.display = 'flex';
         ownerControlsEl.style.display = 'none';
-        document.getElementById('chat-settings-scene').classList.add('active');
-        updateFabVisibility();
         return;
       }
 
       readonlyEl.style.display = 'none';
       ownerControlsEl.style.display = 'flex';
       document.getElementById('chat-scene-title').textContent = `Настройки группы`;
-      document.getElementById('edit-group-name').value = peerObj.nickname;
+      document.getElementById('edit-group-name').value = editingGroupState.nickname;
       document.getElementById('edit-group-photo-status').textContent = isImageAvatar(selectedEditGroupIcon)
         ? 'Выбрано фото'
         : `Выбран эмодзи ${selectedEditGroupIcon}`;
@@ -2507,14 +2501,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       `).join('');
 
       const currentMembersBox = document.getElementById('current-group-members-list');
-      const details = Array.isArray(peerObj.memberDetails) && peerObj.memberDetails.length > 0
-        ? peerObj.memberDetails
-        : (Array.isArray(peerObj.members) ? peerObj.members.map(mid => ({
+      const details = Array.isArray(editingGroupState.memberDetails) && editingGroupState.memberDetails.length > 0
+        ? editingGroupState.memberDetails
+        : (Array.isArray(editingGroupState.members) ? editingGroupState.members.map(mid => ({
             id: mid,
             nickname: mid === currentUser.id ? currentUser.nickname : mid,
             avatar: mid === currentUser.id ? currentUser.avatar : resolveAvatar(mid, null),
-            muted: (peerObj.mutedMembers || []).includes(mid),
-            isOwner: mid === (peerObj.ownerId || peerObj.owner_id)
+            muted: (editingGroupState.mutedMembers || []).includes(mid),
+            isOwner: mid === (editingGroupState.ownerId || editingGroupState.owner_id)
           })) : []);
 
       currentMembersBox.innerHTML = details.map(m => {
@@ -2553,7 +2547,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         `;
       }).join('');
 
-      const currentMembers = Array.isArray(peerObj.members) ? peerObj.members : [];
+      const currentMembers = Array.isArray(editingGroupState.members) ? editingGroupState.members : [];
       const candidates = getDirectPartnersForGroup().filter(p => !currentMembers.includes(p.id));
       const addListEl = document.getElementById('add-group-members-list');
       if (candidates.length === 0) {
@@ -2569,9 +2563,48 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           </label>
         `).join('');
       }
+    }
 
+    function openChatSettingsScene(peerObj) {
+      if (!peerObj) return;
+      const directCard = document.getElementById('direct-chat-settings-card');
+      const groupCard = document.getElementById('group-chat-settings-card');
+
+      if (!peerObj.isGroup) {
+        editingGroupState = null;
+        directCard.style.display = 'flex';
+        groupCard.style.display = 'none';
+        document.getElementById('chat-scene-title').textContent = `Чат: ${peerObj.nickname}`;
+        document.getElementById('chat-settings-scene').classList.add('active');
+        updateFabVisibility();
+        return;
+      }
+
+      directCard.style.display = 'none';
+      groupCard.style.display = 'flex';
+      renderGroupSettingsBody(peerObj);
       document.getElementById('chat-settings-scene').classList.add('active');
       updateFabVisibility();
+
+      fetch(`/api/messages?user_id=${encodeURIComponent(currentUser?.id || '')}&group_id=${encodeURIComponent(peerObj.id)}`, { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.group) return;
+          syncGroupDataFromServer(data.group);
+          if (document.getElementById('chat-settings-scene').classList.contains('active') && editingGroupState && editingGroupState.id === data.group.id) {
+            renderGroupSettingsBody({
+              id: data.group.id,
+              nickname: data.group.name,
+              avatar: data.group.icon,
+              isGroup: true,
+              ownerId: data.group.owner_id,
+              members: data.group.members || [],
+              mutedMembers: data.group.muted_members || [],
+              memberDetails: data.group.member_details || []
+            });
+          }
+        })
+        .catch(() => {});
     }
 
     function pickEditGroupIcon(ic, btnEl) {
@@ -2793,6 +2826,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       activePeer = {
         ...peer,
         isGroup: Boolean(peer.isGroup),
+        ownerId: peer.ownerId || peer.owner_id || '',
         avatar: normalizeAvatar(
           peer.avatar || (peer.isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null)),
           DEFAULT_AVATAR
@@ -3624,7 +3658,7 @@ def update_group():
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
-    if not user_id or grp.get('owner_id') != user_id:
+    if not user_id or str(grp.get('owner_id') or '').strip() != user_id:
         return jsonify({'error': 'Только владелец группы может изменять её настройки'}), 403
 
     if 'name' in data and isinstance(data.get('name'), str):
@@ -3652,7 +3686,7 @@ def add_group_members():
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
-    if not user_id or grp.get('owner_id') != user_id:
+    if not user_id or str(grp.get('owner_id') or '').strip() != user_id:
         return jsonify({'error': 'Только владелец группы может добавлять участников'}), 403
 
     members = list(grp.get('members') or [])
@@ -3684,9 +3718,9 @@ def group_member_action():
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
-    if not user_id or grp.get('owner_id') != user_id:
+    if not user_id or str(grp.get('owner_id') or '').strip() != user_id:
         return jsonify({'error': 'Только владелец группы может управлять участниками'}), 403
-    if not target_user_id or target_user_id == grp.get('owner_id'):
+    if not target_user_id or target_user_id == str(grp.get('owner_id') or '').strip():
         return jsonify({'error': 'Нельзя применить это действие к владельцу группы'}), 400
 
     members = list(grp.get('members') or [])
@@ -3731,7 +3765,7 @@ def leave_group():
     members = [m for m in (grp.get('members') or []) if m != user_id]
     muted_members = [m for m in (grp.get('muted_members') or []) if m != user_id]
 
-    if grp.get('owner_id') == user_id:
+    if str(grp.get('owner_id') or '').strip() == user_id:
         if len(members) == 0:
             db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
             db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
@@ -3758,7 +3792,7 @@ def delete_group():
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
-    if not user_id or grp.get('owner_id') != user_id:
+    if not user_id or str(grp.get('owner_id') or '').strip() != user_id:
         return jsonify({'error': 'Только владелец группы может удалить её'}), 403
 
     db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
@@ -3833,7 +3867,7 @@ def get_chats():
 
     for grp in db['groups']:
         members = grp.get('members') or []
-        if user_id not in members and grp.get('owner_id') != user_id:
+        if user_id not in members and str(grp.get('owner_id') or '').strip() != user_id:
             continue
         ser_grp = serialize_group(grp, users_by_id)
         gid = ser_grp['id']
@@ -3916,9 +3950,9 @@ def send_message():
         if not grp:
             return jsonify({'error': 'Группа не найдена'}), 404
         members = grp.get('members') or []
-        if sender_id not in members and grp.get('owner_id') != sender_id:
+        if sender_id not in members and str(grp.get('owner_id') or '').strip() != sender_id:
             return jsonify({'error': 'Вы не состоите в этой группе'}), 403
-        if grp.get('owner_id') != sender_id and sender_id in (grp.get('muted_members') or []):
+        if str(grp.get('owner_id') or '').strip() != sender_id and sender_id in (grp.get('muted_members') or []):
             return jsonify({'error': 'Владелец группы запретил вам писать сообщения'}), 403
     else:
         if users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
@@ -4011,7 +4045,7 @@ def delete_message():
         grp = next((g for g in db['groups'] if g.get('id') == gid), None)
         if not grp:
             return jsonify({'error': 'Группа не найдена'}), 404
-        if not user_id or grp.get('owner_id') != user_id:
+        if not user_id or str(grp.get('owner_id') or '').strip() != user_id:
             return jsonify({'error': 'Удалять сообщения в группе может только владелец'}), 403
     else:
         if user_id and target_msg.get('sender_id') != user_id and target_msg.get('receiver_id') != user_id:
