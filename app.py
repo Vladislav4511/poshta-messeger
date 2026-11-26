@@ -14,23 +14,46 @@ JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
 RED_BADGE_USER_IDS = {'1795503825490', '1795501800750'}
 BLUE_BADGE_USER_IDS = {'1795447002081'}
 
-ALLOWED_AVATARS = [
-    '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
-    '😎', '👻', '🔥', '⭐', '🎮', '💎',
-    '🍕', '⚡', '👑', '🎨', '🍐'
-]
-
-GROUP_ICONS = [
-    '👥', '🔥', '🎮', '🕊️', '🐗', '🚀',
-    '💎', '⚡', '👑', '🎉', '🍕', '🤖'
-]
-
+ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡']
+DEFAULT_AVATAR = '🦜'
+GROUP_ICONS = ['🦜', '🍐', '🐗', '👑', '⚡']
+DEFAULT_GROUP_ICON = '🦜'
 ALLOWED_REACTIONS = ['👍', '👎', '😃', '💩', '🐗']
+ALLOWED_DM_POLICIES = ['all', 'nobody']
 
 WEEK_MS = 7 * 24 * 60 * 60 * 1000
 _DB_LOCK = threading.RLock()
 _DB_CACHE = {'data': None, 'ts': 0.0}
 _CACHE_TTL_SEC = 0.15
+
+
+def is_image_avatar(val: str) -> bool:
+    if not isinstance(val, str):
+        return False
+    s = val.strip()
+    return s.startswith('data:image/') and len(s) <= 350000
+
+
+def normalize_avatar(val: str, fallback: str = DEFAULT_AVATAR) -> str:
+    if is_image_avatar(val):
+        return val.strip()
+    if isinstance(val, str) and val.strip() in ALLOWED_AVATARS:
+        return val.strip()
+    if is_image_avatar(fallback):
+        return fallback.strip()
+    return fallback if fallback in ALLOWED_AVATARS else DEFAULT_AVATAR
+
+
+def normalize_group_icon(val: str, fallback: str = DEFAULT_GROUP_ICON) -> str:
+    if is_image_avatar(val):
+        return val.strip()
+    if isinstance(val, str) and val.strip() in GROUP_ICONS:
+        return val.strip()
+    return fallback if fallback in GROUP_ICONS else DEFAULT_GROUP_ICON
+
+
+def normalize_dm_policy(val: str) -> str:
+    return val if val in ALLOWED_DM_POLICIES else 'all'
 
 
 def use_cloud_db() -> bool:
@@ -153,6 +176,8 @@ def enrich_user_badge(user: dict) -> dict:
     uid = str((user or {}).get('id') or '').strip()
     badge_color = get_badge_color_for_user_id(uid)
     out = dict(user)
+    out['avatar'] = normalize_avatar(out.get('avatar'), DEFAULT_AVATAR)
+    out['dm_policy'] = normalize_dm_policy(out.get('dm_policy'))
     out['badge_color'] = badge_color
     out['verified'] = badge_color is not None
     return out
@@ -191,14 +216,14 @@ def serialize_group(grp: dict, users_by_id: dict) -> dict:
         member_details.append({
             'id': mid,
             'nickname': u.get('nickname', 'Пользователь') if u else 'Пользователь',
-            'avatar': u.get('avatar', '🕊️') if u else '🕊️',
+            'avatar': normalize_avatar(u.get('avatar') if u else DEFAULT_AVATAR, DEFAULT_AVATAR),
             'muted': mid in muted_members,
             'isOwner': mid == owner_id
         })
     return {
         'id': grp.get('id', ''),
         'name': grp.get('name', 'Группа'),
-        'icon': grp.get('icon', '👥'),
+        'icon': normalize_group_icon(grp.get('icon'), DEFAULT_GROUP_ICON),
         'owner_id': owner_id,
         'members': members,
         'muted_members': muted_members,
@@ -470,6 +495,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       align-items: center;
       font-size: 21px;
       flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .avatar-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
@@ -926,7 +959,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     .group-icon-grid {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 8px;
       background: var(--bg-main);
       padding: 10px;
@@ -935,11 +968,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .emoji-pick-btn {
-      height: 42px;
+      height: 44px;
       border-radius: 10px;
       border: 2px solid transparent;
       background: var(--bg-surface);
-      font-size: 20px;
+      font-size: 21px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -947,6 +980,36 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .emoji-pick-btn.selected { border-color: #22c55e; background: #14532d; }
+
+    .photo-picker-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-main);
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .photo-upload-btn {
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--accent);
+      background: var(--chip-active-bg);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .photo-status-text {
+      font-size: 12px;
+      color: #cbd5e1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     .member-select-list {
       display: flex;
@@ -1040,22 +1103,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .settings-tabs-bar {
       display: flex;
       background: var(--bg-surface);
-      padding: 8px 16px;
-      gap: 8px;
+      padding: 8px 12px;
+      gap: 6px;
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
 
     .settings-tab-btn {
       flex: 1;
-      padding: 11px;
+      padding: 10px 6px;
       border-radius: 12px;
       border: none;
       background: var(--bg-main);
       color: #94a3b8;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .settings-tab-btn.active { background: var(--accent); color: var(--accent-text); }
@@ -1110,14 +1174,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       flex-shrink: 0;
     }
 
-    .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 6px; }
+    .avatar-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
 
     .avatar-option {
-      aspect-ratio: 1;
+      height: 46px;
       border-radius: 12px;
       background: var(--bg-main);
       border: 2px solid transparent;
-      font-size: 24px;
+      font-size: 23px;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -1138,6 +1202,31 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .size-btn.selected { border-color: var(--accent); background: var(--chip-active-bg); color: #ffffff; }
+
+    .privacy-selector {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .privacy-btn {
+      padding: 12px 10px;
+      border-radius: 12px;
+      border: 2px solid var(--border-subtle);
+      background: var(--bg-main);
+      color: #e2e8f0;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .privacy-btn.selected {
+      border-color: var(--accent);
+      background: var(--chip-active-bg);
+      color: #ffffff;
+    }
 
     .theme-selector {
       display: grid;
@@ -1242,7 +1331,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div id="main-screen">
     <header class="top-bar" id="main-top-bar">
       <div class="user-badge">
-        <div class="avatar-circle" id="header-avatar">🕊️</div>
+        <div class="avatar-circle" id="header-avatar">🦜</div>
         <div class="nickname-row">
           <span id="header-nick">Пользователь</span>
           <span id="header-verified"></span>
@@ -1287,6 +1376,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="settings-tabs-bar">
       <button class="settings-tab-btn active" id="stab-main" onclick="switchSettingsTab('main')">Основная</button>
       <button class="settings-tab-btn" id="stab-custom" onclick="switchSettingsTab('custom')">Кастомизация</button>
+      <button class="settings-tab-btn" id="stab-privacy" onclick="switchSettingsTab('privacy')">Конфиденциальность</button>
     </div>
 
     <div class="settings-content">
@@ -1300,7 +1390,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         </div>
 
         <div class="input-group">
-          <label>Выбери аватарку (17 эмодзи)</label>
+          <label>Аватарка: фотография или 1 из 5 эмодзи</label>
+          <div class="photo-picker-row">
+            <input type="file" id="user-avatar-file" accept="image/*" style="display:none;" onchange="handleUserAvatarFile(event)" />
+            <button type="button" class="photo-upload-btn" onclick="document.getElementById('user-avatar-file').click()">📷 Фото</button>
+            <span class="photo-status-text" id="user-avatar-photo-status">Эмодзи не выбрано фото</span>
+          </div>
           <div class="avatar-grid" id="avatar-grid"></div>
         </div>
 
@@ -1362,6 +1457,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         <div class="ok-msg" id="custom-saved-msg"></div>
         <button class="primary-btn" onclick="saveCustomization()">Применить кастомизацию</button>
       </div>
+
+      <div class="settings-section" id="ssec-privacy">
+        <div class="input-group">
+          <label>Кто может писать вам</label>
+          <div class="privacy-selector">
+            <button type="button" class="privacy-btn" id="privacy-all-btn" onclick="selectDmPolicy('all')">Все</button>
+            <button type="button" class="privacy-btn" id="privacy-nobody-btn" onclick="selectDmPolicy('nobody')">Никто</button>
+          </div>
+          <span class="hint-text">Если выбрано «Никто», другие пользователи не смогут написать вам в личку. Вы сами сможете писать другим, если у них не выбрано «Никто».</span>
+        </div>
+
+        <div class="error-msg" id="privacy-error"></div>
+        <div class="ok-msg" id="privacy-ok"></div>
+        <button class="primary-btn" onclick="savePrivacySettings()">Сохранить конфиденциальность</button>
+      </div>
     </div>
   </section>
 
@@ -1381,7 +1491,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <input type="text" id="new-group-name" placeholder="Например: Сквад" maxlength="32" />
         </div>
         <div class="input-group">
-          <label>Иконка группы</label>
+          <label>Иконка группы: фотография или 1 из 5 эмодзи</label>
+          <div class="photo-picker-row">
+            <input type="file" id="new-group-photo-file" accept="image/*" style="display:none;" onchange="handleGroupPhotoFile(event, 'create')" />
+            <button type="button" class="photo-upload-btn" onclick="document.getElementById('new-group-photo-file').click()">📷 Фото</button>
+            <span class="photo-status-text" id="new-group-photo-status">Выбран эмодзи</span>
+          </div>
           <div class="group-icon-grid" id="create-group-icon-grid"></div>
         </div>
         <div class="input-group">
@@ -1404,12 +1519,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </header>
 
     <div class="scene-body">
-      <!-- Чат 1 на 1: только кнопка удалить -->
       <div id="direct-chat-settings-card" style="display:none; flex-direction:column; gap:12px;">
         <button type="button" class="sheet-btn delete" onclick="deleteDirectChat()">🗑️ Удалить чат</button>
       </div>
 
-      <!-- Настройки группы -->
       <div class="scene-card" id="group-chat-settings-card" style="display:none;">
         <div class="group-info-card" id="group-readonly-info" style="display:none;"></div>
 
@@ -1420,7 +1533,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           </div>
 
           <div class="input-group">
-            <label>Иконка группы</label>
+            <label>Иконка группы: фотография или 1 из 5 эмодзи</label>
+            <div class="photo-picker-row">
+              <input type="file" id="edit-group-photo-file" accept="image/*" style="display:none;" onchange="handleGroupPhotoFile(event, 'edit')" />
+              <button type="button" class="photo-upload-btn" onclick="document.getElementById('edit-group-photo-file').click()">📷 Фото</button>
+              <span class="photo-status-text" id="edit-group-photo-status">Выбран эмодзи</span>
+            </div>
             <div class="group-icon-grid" id="edit-group-icon-grid"></div>
           </div>
 
@@ -1449,7 +1567,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <header class="top-bar">
       <div class="user-badge">
         <button class="back-btn" onclick="closeChatRoom()">←</button>
-        <div class="avatar-circle" id="peer-avatar">🕊️</div>
+        <div class="avatar-circle" id="peer-avatar">🦜</div>
         <div id="peer-header-info" class="peer-title-clickable" onclick="handlePeerHeaderClick()">
           <div class="nickname-row">
             <span id="peer-nick">Пользователь</span>
@@ -1518,27 +1636,44 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let currentMessagesCache = [];
     let selectedMessage = null;
     let replyingToMessage = null;
-    let selectedAvatar = '🕊️';
+    let selectedAvatar = '🦜';
+    let selectedDmPolicy = 'all';
     let customization = { msgSize: 'medium', theme: 'blue' };
-    let selectedNewGroupIcon = '👥';
+    let selectedNewGroupIcon = '🦜';
     let editingGroupState = null;
-    let selectedEditGroupIcon = '👥';
+    let selectedEditGroupIcon = '🦜';
 
     const RED_BADGE_IDS = new Set(['1795503825490', '1795501800750']);
     const BLUE_BADGE_IDS = new Set(['1795447002081']);
 
     const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
-    const GROUP_ICONS = ['👥', '🔥', '🎮', '🕊️', '🐗', '🚀', '💎', '⚡', '👑', '🎉', '🍕', '🤖'];
+    const GROUP_ICONS = ['🦜', '🍐', '🐗', '👑', '⚡'];
     const ALLOWED_THEMES = ['blue', 'green', 'red', 'yellow'];
-    const ALLOWED_AVATARS = [
-      '🕊️', '🦜', '🐗', '🎩', '🚀', '🤖',
-      '😎', '👻', '🔥', '⭐', '🎮', '💎',
-      '🍕', '⚡', '👑', '🎨', '🍐'
-    ];
+    const ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡'];
+    const DEFAULT_AVATAR = '🦜';
     const MONTHS_RU = [
       'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
+
+    function isImageAvatar(val) {
+      return typeof val === 'string' && val.trim().startsWith('data:image/');
+    }
+
+    function normalizeAvatar(val, fallback = DEFAULT_AVATAR) {
+      if (isImageAvatar(val)) return val.trim();
+      if (typeof val === 'string' && ALLOWED_AVATARS.includes(val.trim())) return val.trim();
+      if (isImageAvatar(fallback)) return fallback.trim();
+      return ALLOWED_AVATARS.includes(fallback) ? fallback : DEFAULT_AVATAR;
+    }
+
+    function renderAvatarContent(val, fallback = DEFAULT_AVATAR) {
+      const norm = normalizeAvatar(val, fallback);
+      if (isImageAvatar(norm)) {
+        return `<img src="${escapeHtml(norm)}" alt="avatar" />`;
+      }
+      return escapeHtml(norm);
+    }
 
     function isAnyOverlaySceneOpen() {
       return Boolean(
@@ -1636,16 +1771,99 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function resolveAvatar(userId, fallbackAvatar) {
-      if (currentUser && userId && currentUser.id === userId && currentUser.avatar) return currentUser.avatar;
+      if (currentUser && userId && currentUser.id === userId && currentUser.avatar) {
+        return normalizeAvatar(currentUser.avatar, DEFAULT_AVATAR);
+      }
       if (fallbackAvatar) {
-        if (userId) localStorage.setItem(`pigeon_avatar_${userId}`, fallbackAvatar);
-        return fallbackAvatar;
+        const norm = normalizeAvatar(fallbackAvatar, DEFAULT_AVATAR);
+        if (userId) localStorage.setItem(`pigeon_avatar_${userId}`, norm);
+        return norm;
       }
       if (userId) {
         const localAv = localStorage.getItem(`pigeon_avatar_${userId}`);
-        if (localAv) return localAv;
+        if (localAv) return normalizeAvatar(localAv, DEFAULT_AVATAR);
       }
-      return '🕊️';
+      return DEFAULT_AVATAR;
+    }
+
+    function compressImageToDataUrl(file, maxSize = 220, quality = 0.78) {
+      return new Promise((resolve, reject) => {
+        if (!file || !file.type.startsWith('image/')) {
+          reject(new Error('Выберите файл изображения'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width || maxSize;
+            let h = img.height || maxSize;
+            if (w > h) {
+              if (w > maxSize) {
+                h = Math.round((h * maxSize) / w);
+                w = maxSize;
+              }
+            } else if (h > maxSize) {
+              w = Math.round((w * maxSize) / h);
+              h = maxSize;
+            }
+            canvas.width = Math.max(1, w);
+            canvas.height = Math.max(1, h);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const out = canvas.toDataURL('image/jpeg', quality);
+            resolve(out);
+          };
+          img.onerror = () => reject(new Error('Не удалось загрузить картинку'));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleUserAvatarFile(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file || !currentUser) return;
+      try {
+        const dataUrl = await compressImageToDataUrl(file);
+        selectedAvatar = dataUrl;
+        currentUser.avatar = dataUrl;
+        localStorage.setItem(`pigeon_avatar_${currentUser.id}`, dataUrl);
+        document.querySelectorAll('#avatar-grid .avatar-option').forEach(el => el.classList.remove('selected'));
+        document.getElementById('user-avatar-photo-status').textContent = 'Фото выбрано';
+        updateHeaderUI();
+        fetch('/api/update-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ id: currentUser.id, newNickname: currentUser.nickname, newAvatar: dataUrl })
+        }).then(() => loadChatsList()).catch(() => {});
+      } catch (e) {
+        document.getElementById('settings-error').textContent = e.message || 'Ошибка загрузки фото';
+      }
+    }
+
+    async function handleGroupPhotoFile(event, mode) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      try {
+        const dataUrl = await compressImageToDataUrl(file);
+        if (mode === 'create') {
+          selectedNewGroupIcon = dataUrl;
+          document.querySelectorAll('#create-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
+          document.getElementById('new-group-photo-status').textContent = 'Фото выбрано';
+        } else {
+          selectedEditGroupIcon = dataUrl;
+          document.querySelectorAll('#edit-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
+          document.getElementById('edit-group-photo-status').textContent = 'Фото выбрано';
+        }
+      } catch (e) {
+        showCopyToast(e.message || 'Ошибка загрузки фото');
+      }
     }
 
     function updateFabVisibility() {
@@ -1853,9 +2071,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function enterApp(user) {
-      currentUser = user;
-      selectedAvatar = resolveAvatar(user.id, user.avatar);
-      currentUser.avatar = selectedAvatar;
+      currentUser = {
+        ...user,
+        avatar: resolveAvatar(user.id, user.avatar),
+        dm_policy: user.dm_policy === 'nobody' ? 'nobody' : 'all'
+      };
+      selectedAvatar = currentUser.avatar;
+      selectedDmPolicy = currentUser.dm_policy;
+      localStorage.setItem(`pigeon_avatar_${currentUser.id}`, selectedAvatar);
 
       document.getElementById('auth-screen').classList.remove('active');
       document.getElementById('main-screen').classList.add('active');
@@ -1881,7 +2104,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function updateHeaderUI() {
       if (!currentUser) return;
-      document.getElementById('header-avatar').textContent = resolveAvatar(currentUser.id, currentUser.avatar);
+      const av = resolveAvatar(currentUser.id, currentUser.avatar);
+      document.getElementById('header-avatar').innerHTML = renderAvatarContent(av, DEFAULT_AVATAR);
       document.getElementById('header-nick').textContent = currentUser.nickname;
       document.getElementById('header-verified').innerHTML = getBadgeHtmlForUser(currentUser);
     }
@@ -1939,7 +2163,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           return `
             <div class="search-user-item" onclick='openChatWithUser(${safeObj})'>
               <div class="search-user-left">
-                <div class="avatar-circle">${av}</div>
+                <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
                 <div class="nickname-row">
                   <span>${escapeHtml(u.nickname)}</span>
                   ${getBadgeHtmlForUser(u)}
@@ -1977,13 +2201,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       emptyEl.style.display = 'none';
       listEl.innerHTML = chats.map(c => {
         const isGroup = Boolean(c.isGroup);
-        const av = isGroup ? (c.avatar || '👥') : (c.avatar || resolveAvatar(c.id, null));
+        const av = normalizeAvatar(
+          isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null)),
+          DEFAULT_AVATAR
+        );
         const safeObj = escapeHtml(JSON.stringify({
           id: c.id,
           nickname: c.nickname,
           avatar: av,
           verified: c.verified,
           badge_color: c.badge_color || null,
+          dm_policy: c.dm_policy || 'all',
           isGroup,
           ownerId: c.ownerId || '',
           members: Array.isArray(c.members) ? c.members : [],
@@ -1995,7 +2223,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const prefix = isGroup && c.lastSenderName && c.lastMessage && c.lastSenderId !== 'system' ? `${c.lastSenderName}: ` : '';
         return `
           <div class="chat-list-item" onclick='openChatWithUser(${safeObj})'>
-            <div class="avatar-circle">${escapeHtml(av)}</div>
+            <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
             <div class="chat-meta">
               <div class="nickname-row">
                 <span>${escapeHtml(c.nickname)}</span>
@@ -2032,8 +2260,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         const normalized = data.chats.map(c => {
           const isGroup = Boolean(c.isGroup);
-          const av = isGroup ? (c.avatar || '👥') : (c.avatar || resolveAvatar(c.id, null));
-          if (!isGroup && c.id && c.avatar) localStorage.setItem(`pigeon_avatar_${c.id}`, c.avatar);
+          const av = normalizeAvatar(
+            isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null)),
+            DEFAULT_AVATAR
+          );
+          if (!isGroup && c.id && av) localStorage.setItem(`pigeon_avatar_${c.id}`, av);
 
           const prevItem = prevMap.get(c.id);
           const localMsgs = readLocalDialog(currentUser.id, c.id);
@@ -2058,11 +2289,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             activePeer.avatar = av;
             activePeer.nickname = c.nickname;
             activePeer.badge_color = c.badge_color || null;
+            activePeer.dm_policy = c.dm_policy || activePeer.dm_policy || 'all';
             activePeer.ownerId = c.ownerId || activePeer.ownerId || '';
             activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
             activePeer.mutedMembers = Array.isArray(c.mutedMembers) ? c.mutedMembers : [];
             activePeer.memberDetails = Array.isArray(c.memberDetails) ? c.memberDetails : [];
-            document.getElementById('peer-avatar').textContent = av;
+            document.getElementById('peer-avatar').innerHTML = renderAvatarContent(av, DEFAULT_AVATAR);
             document.getElementById('peer-nick').textContent = c.nickname;
             document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
             applyGroupRoomState();
@@ -2105,9 +2337,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function openCreateGroupScene() {
       if (!currentUser) return;
-      selectedNewGroupIcon = '👥';
+      selectedNewGroupIcon = DEFAULT_GROUP_ICON;
       document.getElementById('new-group-name').value = '';
       document.getElementById('create-group-error').textContent = '';
+      document.getElementById('new-group-photo-status').textContent = 'Выбран эмодзи';
 
       const iconGrid = document.getElementById('create-group-icon-grid');
       iconGrid.innerHTML = GROUP_ICONS.map(ic => `
@@ -2122,7 +2355,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         membersBox.innerHTML = partners.map(p => `
           <label class="member-check-item">
             <div class="member-check-left">
-              <span style="font-size:20px;">${escapeHtml(p.avatar || '🕊️')}</span>
+              <div class="avatar-circle" style="width:30px;height:30px;font-size:16px;">${renderAvatarContent(p.avatar, DEFAULT_AVATAR)}</div>
               <span>${escapeHtml(p.nickname)}</span>
             </div>
             <input type="checkbox" class="new-group-member-cb" value="${escapeHtml(p.id)}" />
@@ -2138,6 +2371,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       selectedNewGroupIcon = ic;
       document.querySelectorAll('#create-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
       if (btnEl) btnEl.classList.add('selected');
+      document.getElementById('new-group-photo-status').textContent = `Выбран эмодзи ${ic}`;
     }
 
     function closeCreateGroupScene() {
@@ -2197,9 +2431,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function syncGroupDataFromServer(serverGroup) {
       if (!serverGroup) return;
+      const cleanIcon = normalizeAvatar(serverGroup.icon, DEFAULT_GROUP_ICON);
       if (editingGroupState && editingGroupState.id === serverGroup.id) {
         editingGroupState.nickname = serverGroup.name;
-        editingGroupState.avatar = serverGroup.icon;
+        editingGroupState.avatar = cleanIcon;
         editingGroupState.ownerId = serverGroup.owner_id;
         editingGroupState.members = serverGroup.members || [];
         editingGroupState.mutedMembers = serverGroup.muted_members || [];
@@ -2207,13 +2442,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       }
       if (activePeer && activePeer.id === serverGroup.id) {
         activePeer.nickname = serverGroup.name;
-        activePeer.avatar = serverGroup.icon;
+        activePeer.avatar = cleanIcon;
         activePeer.ownerId = serverGroup.owner_id;
         activePeer.members = serverGroup.members || [];
         activePeer.mutedMembers = serverGroup.muted_members || [];
         activePeer.memberDetails = serverGroup.member_details || [];
         document.getElementById('peer-nick').textContent = activePeer.nickname;
-        document.getElementById('peer-avatar').textContent = activePeer.avatar;
+        document.getElementById('peer-avatar').innerHTML = renderAvatarContent(cleanIcon, DEFAULT_GROUP_ICON);
         applyGroupRoomState();
       }
     }
@@ -2234,15 +2469,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       directCard.style.display = 'none';
       groupCard.style.display = 'flex';
-      editingGroupState = { ...peerObj };
-      selectedEditGroupIcon = peerObj.avatar || '👥';
+      editingGroupState = { ...peerObj, avatar: normalizeAvatar(peerObj.avatar, DEFAULT_GROUP_ICON) };
+      selectedEditGroupIcon = editingGroupState.avatar;
       const canEdit = isGroupOwner(peerObj);
 
       const readonlyEl = document.getElementById('group-readonly-info');
       const ownerControlsEl = document.getElementById('group-owner-controls');
 
       if (!canEdit) {
-        document.getElementById('chat-scene-title').textContent = `${peerObj.avatar || '👥'} ${peerObj.nickname}`;
+        document.getElementById('chat-scene-title').textContent = `${peerObj.nickname}`;
         const memberCount = Array.isArray(peerObj.members) ? peerObj.members.length : 0;
         const mutedForMe = isUserMutedInGroup(peerObj, currentUser?.id);
         readonlyEl.innerHTML = `
@@ -2261,6 +2496,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       ownerControlsEl.style.display = 'flex';
       document.getElementById('chat-scene-title').textContent = `Настройки группы`;
       document.getElementById('edit-group-name').value = peerObj.nickname;
+      document.getElementById('edit-group-photo-status').textContent = isImageAvatar(selectedEditGroupIcon)
+        ? 'Выбрано фото'
+        : `Выбран эмодзи ${selectedEditGroupIcon}`;
 
       const iconGrid = document.getElementById('edit-group-icon-grid');
       iconGrid.innerHTML = GROUP_ICONS.map(ic => `
@@ -2283,7 +2521,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           return `
             <div class="member-check-item">
               <div class="member-check-left">
-                <span style="font-size:20px;">${escapeHtml(m.avatar || '🕊️')}</span>
+                <div class="avatar-circle" style="width:30px;height:30px;font-size:16px;">${renderAvatarContent(m.avatar, DEFAULT_AVATAR)}</div>
                 <span>${escapeHtml(m.nickname)} <strong style="color:var(--accent);">(Владелец)</strong></span>
               </div>
             </div>
@@ -2293,7 +2531,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         return `
           <div class="member-check-item">
             <div class="member-check-left">
-              <span style="font-size:20px;">${escapeHtml(m.avatar || '🕊️')}</span>
+              <div class="avatar-circle" style="width:30px;height:30px;font-size:16px;">${renderAvatarContent(m.avatar, DEFAULT_AVATAR)}</div>
               <span>${escapeHtml(m.nickname)}</span>
             </div>
             <div class="member-row-actions">
@@ -2323,7 +2561,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         addListEl.innerHTML = candidates.map(p => `
           <label class="member-check-item">
             <div class="member-check-left">
-              <span style="font-size:20px;">${escapeHtml(p.avatar || '🕊️')}</span>
+              <div class="avatar-circle" style="width:30px;height:30px;font-size:16px;">${renderAvatarContent(p.avatar, DEFAULT_AVATAR)}</div>
               <span>${escapeHtml(p.nickname)}</span>
             </div>
             <input type="checkbox" class="add-group-member-cb" value="${escapeHtml(p.id)}" />
@@ -2339,6 +2577,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       selectedEditGroupIcon = ic;
       document.querySelectorAll('#edit-group-icon-grid .emoji-pick-btn').forEach(b => b.classList.remove('selected'));
       if (btnEl) btnEl.classList.add('selected');
+      document.getElementById('edit-group-photo-status').textContent = `Выбран эмодзи ${ic}`;
     }
 
     function closeChatSettingsScene() {
@@ -2492,25 +2731,37 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function leaveCurrentGroup() {
       if (!editingGroupState || !currentUser) return;
       const gid = editingGroupState.id;
-      document.getElementById('chat-settings-scene').classList.remove('active');
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
-      renderChatsListItems(readChatsCache(currentUser.id));
-      if (activePeer && activePeer.id === gid) {
-        activePeer = null;
-        document.getElementById('chat-room-view').classList.remove('active');
-        if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
-      }
-      updateFabVisibility();
+      const wasActiveRoom = Boolean(activePeer && activePeer.id === gid);
+
       try {
-        await fetch('/api/groups/leave', {
+        const res = await fetch('/api/groups/leave', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
           body: JSON.stringify({ group_id: gid, user_id: currentUser.id })
         });
-        showCopyToast('Вы вышли из группы');
-        loadChatsList();
+        const data = await res.json();
+
+        if (!wasActiveRoom && !data.deleted && data.group) {
+          syncGroupDataFromServer(data.group);
+          openChatSettingsScene(editingGroupState);
+          showCopyToast('Список участников обновлён');
+          loadChatsList();
+          return;
+        }
       } catch (e) {}
+
+      document.getElementById('chat-settings-scene').classList.remove('active');
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.id !== gid));
+      renderChatsListItems(readChatsCache(currentUser.id));
+      if (wasActiveRoom) {
+        activePeer = null;
+        document.getElementById('chat-room-view').classList.remove('active');
+        if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+      }
+      updateFabVisibility();
+      showCopyToast('Вы вышли из группы');
+      loadChatsList();
     }
 
     async function deleteCurrentGroup() {
@@ -2541,14 +2792,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       activePeer = {
         ...peer,
         isGroup: Boolean(peer.isGroup),
-        avatar: peer.avatar || (peer.isGroup ? '👥' : resolveAvatar(peer.id, null))
+        avatar: normalizeAvatar(
+          peer.avatar || (peer.isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null)),
+          DEFAULT_AVATAR
+        )
       };
       cancelReply();
       applyCustomizationToUI();
       applyGroupRoomState();
       updateFabVisibility();
 
-      document.getElementById('peer-avatar').textContent = activePeer.avatar;
+      document.getElementById('peer-avatar').innerHTML = renderAvatarContent(activePeer.avatar, DEFAULT_AVATAR);
       document.getElementById('peer-nick').textContent = activePeer.nickname;
       document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
       document.getElementById('chat-room-view').classList.add('active');
@@ -2757,7 +3011,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const peerId = activePeer.id;
       const peerNick = activePeer.nickname;
-      const peerAv = activePeer.avatar || (activePeer.isGroup ? '👥' : '🕊️');
+      const peerAv = normalizeAvatar(activePeer.avatar || (activePeer.isGroup ? DEFAULT_GROUP_ICON : DEFAULT_AVATAR), DEFAULT_AVATAR);
       const isGroup = Boolean(activePeer.isGroup);
       const replySnapshot = replyingToMessage ? { ...replyingToMessage } : null;
       const nowTs = Date.now();
@@ -2823,6 +3077,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(data => {
           if (data.error) {
             currentMessagesCache = currentMessagesCache.filter(m => m.id !== tempId);
+            writeLocalDialog(currentUser.id, peerId, currentMessagesCache);
             renderMessages(currentMessagesCache, false);
             showCopyToast(data.error);
             return;
@@ -2983,9 +3238,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('settings-error').textContent = '';
       document.getElementById('settings-ok').textContent = '';
       document.getElementById('custom-saved-msg').textContent = '';
+      document.getElementById('privacy-error').textContent = '';
+      document.getElementById('privacy-ok').textContent = '';
       document.getElementById('settings-user-id').textContent = currentUser.id || '—';
       document.getElementById('settings-nick').value = currentUser.nickname;
       selectedAvatar = resolveAvatar(currentUser.id, currentUser.avatar);
+      currentUser.avatar = selectedAvatar;
+      localStorage.setItem(`pigeon_avatar_${currentUser.id}`, selectedAvatar);
+      updateHeaderUI();
+
+      document.getElementById('user-avatar-photo-status').textContent = isImageAvatar(selectedAvatar)
+        ? 'Выбрано фото'
+        : `Выбран эмодзи ${selectedAvatar}`;
 
       const passed = Date.now() - (currentUser.lastNickChange || 0);
       const nickInput = document.getElementById('settings-nick');
@@ -3003,12 +3267,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       ALLOWED_AVATARS.forEach(emoji => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'avatar-option' + (emoji === selectedAvatar ? ' selected' : '');
+        btn.className = 'avatar-option' + (!isImageAvatar(selectedAvatar) && emoji === selectedAvatar ? ' selected' : '');
         btn.textContent = emoji;
         btn.onclick = () => {
           selectedAvatar = emoji;
-          document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+          document.querySelectorAll('#avatar-grid .avatar-option').forEach(el => el.classList.remove('selected'));
           btn.classList.add('selected');
+          document.getElementById('user-avatar-photo-status').textContent = `Выбран эмодзи ${emoji}`;
           currentUser.avatar = emoji;
           localStorage.setItem(`pigeon_avatar_${currentUser.id}`, emoji);
           updateHeaderUI();
@@ -3022,6 +3287,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         grid.appendChild(btn);
       });
 
+      selectedDmPolicy = currentUser.dm_policy === 'nobody' ? 'nobody' : 'all';
+      applyPrivacyUI();
       applyCustomizationToUI();
       switchSettingsTab('main');
       document.getElementById('settings-screen').classList.add('active');
@@ -3037,8 +3304,49 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function switchSettingsTab(tab) {
       document.getElementById('stab-main').classList.toggle('active', tab === 'main');
       document.getElementById('stab-custom').classList.toggle('active', tab === 'custom');
+      document.getElementById('stab-privacy').classList.toggle('active', tab === 'privacy');
       document.getElementById('ssec-main').classList.toggle('active', tab === 'main');
       document.getElementById('ssec-custom').classList.toggle('active', tab === 'custom');
+      document.getElementById('ssec-privacy').classList.toggle('active', tab === 'privacy');
+    }
+
+    function applyPrivacyUI() {
+      document.getElementById('privacy-all-btn').classList.toggle('selected', selectedDmPolicy === 'all');
+      document.getElementById('privacy-nobody-btn').classList.toggle('selected', selectedDmPolicy === 'nobody');
+    }
+
+    function selectDmPolicy(policy) {
+      selectedDmPolicy = policy === 'nobody' ? 'nobody' : 'all';
+      applyPrivacyUI();
+      document.getElementById('privacy-ok').textContent = '';
+      document.getElementById('privacy-error').textContent = '';
+    }
+
+    async function savePrivacySettings() {
+      if (!currentUser) return;
+      const errEl = document.getElementById('privacy-error');
+      const okEl = document.getElementById('privacy-ok');
+      errEl.textContent = '';
+      okEl.textContent = '';
+      currentUser.dm_policy = selectedDmPolicy;
+
+      try {
+        const res = await fetch('/api/update-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ id: currentUser.id, dm_policy: selectedDmPolicy })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Не удалось сохранить настройки';
+          return;
+        }
+        currentUser = { ...currentUser, ...data.user };
+        okEl.textContent = 'Настройки конфиденциальности сохранены!';
+      } catch (e) {
+        errEl.textContent = 'Нет связи с сервером';
+      }
     }
 
     function selectMsgSize(size) { customization.msgSize = size; applyCustomizationToUI(); }
@@ -3065,6 +3373,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       errorEl.textContent = '';
       okEl.textContent = '';
 
+      selectedAvatar = normalizeAvatar(selectedAvatar, DEFAULT_AVATAR);
       currentUser.avatar = selectedAvatar;
       localStorage.setItem(`pigeon_avatar_${currentUser.id}`, selectedAvatar);
       updateHeaderUI();
@@ -3079,7 +3388,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (!res.ok) { errorEl.textContent = data.error || 'Ошибка сохранения никнейма на сервере'; return; }
-        currentUser = { ...data.user, avatar: selectedAvatar };
+        currentUser = { ...data.user, avatar: normalizeAvatar(data.user.avatar || selectedAvatar, DEFAULT_AVATAR) };
         document.getElementById('settings-user-id').textContent = currentUser.id || '—';
         updateHeaderUI();
         loadChatsList();
@@ -3140,7 +3449,8 @@ def register():
         'id': uid,
         'nickname': nickname,
         'password': password,
-        'avatar': '🕊️',
+        'avatar': DEFAULT_AVATAR,
+        'dm_policy': 'all',
         'verified': has_any_checkmark(uid),
         'lastNickChange': now_ms
     }
@@ -3166,6 +3476,8 @@ def login():
     if not user:
         return jsonify({'error': 'Неверный никнейм или пароль'}), 401
 
+    user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
+    user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
     user['verified'] = has_any_checkmark(user.get('id'))
     return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
 
@@ -3178,6 +3490,8 @@ def me():
     user = next((u for u in db['users'] if u['id'] == user_id), None)
     if not user:
         return jsonify({'error': 'Аккаунт не найден'}), 404
+    user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
+    user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
     user['verified'] = has_any_checkmark(user.get('id'))
     return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
 
@@ -3193,7 +3507,8 @@ def search_users():
         {
             'id': u['id'],
             'nickname': u['nickname'],
-            'avatar': u.get('avatar', '🕊️'),
+            'avatar': normalize_avatar(u.get('avatar'), DEFAULT_AVATAR),
+            'dm_policy': normalize_dm_policy(u.get('dm_policy')),
             'verified': has_any_checkmark(u.get('id')),
             'badge_color': get_badge_color_for_user_id(u.get('id'))
         }
@@ -3209,6 +3524,7 @@ def update_profile():
     user_id = data.get('id')
     new_nickname = (data.get('newNickname') or '').strip()
     new_avatar = data.get('newAvatar')
+    new_dm_policy = data.get('dm_policy')
 
     db = load_db(force_refresh=True)
     users = db['users']
@@ -3217,10 +3533,18 @@ def update_profile():
         return jsonify({'error': 'Пользователь не найден'}), 404
 
     user = users[user_index]
-    if new_avatar:
-        if new_avatar not in ALLOWED_AVATARS:
+    user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
+    user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
+
+    if new_avatar is not None and str(new_avatar).strip():
+        if not is_image_avatar(new_avatar) and str(new_avatar).strip() not in ALLOWED_AVATARS:
             return jsonify({'error': 'Недопустимая аватарка'}), 400
-        user['avatar'] = new_avatar
+        user['avatar'] = normalize_avatar(new_avatar, user['avatar'])
+
+    if new_dm_policy is not None:
+        if new_dm_policy not in ALLOWED_DM_POLICIES:
+            return jsonify({'error': 'Недопустимое значение конфиденциальности'}), 400
+        user['dm_policy'] = new_dm_policy
 
     if new_nickname and new_nickname != user['nickname']:
         if len(new_nickname) < 2 or len(new_nickname) > 20:
@@ -3250,13 +3574,13 @@ def create_group():
     data = request.get_json() or {}
     creator_id = (data.get('creator_id') or '').strip()
     name = (data.get('name') or '').strip()
-    icon = (data.get('icon') or '👥').strip()
+    icon_raw = (data.get('icon') or DEFAULT_GROUP_ICON).strip()
     raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
 
     if not creator_id or len(name) < 2:
         return jsonify({'error': 'Укажи название группы'}), 400
-    if icon not in GROUP_ICONS:
-        icon = '👥'
+    if not is_image_avatar(icon_raw) and icon_raw not in GROUP_ICONS:
+        icon_raw = DEFAULT_GROUP_ICON
 
     members = []
     for mid in [creator_id] + [str(m).strip() for m in raw_members if str(m).strip()]:
@@ -3270,7 +3594,7 @@ def create_group():
     group_obj = {
         'id': group_id,
         'name': name[:32],
-        'icon': icon,
+        'icon': normalize_group_icon(icon_raw, DEFAULT_GROUP_ICON),
         'owner_id': creator_id,
         'members': members,
         'muted_members': [],
@@ -3306,8 +3630,10 @@ def update_group():
         clean_name = data['name'].strip()
         if len(clean_name) >= 2:
             grp['name'] = clean_name[:32]
-    if 'icon' in data and data.get('icon') in GROUP_ICONS:
-        grp['icon'] = data['icon']
+    if 'icon' in data and isinstance(data.get('icon'), str):
+        ic_val = data['icon'].strip()
+        if is_image_avatar(ic_val) or ic_val in GROUP_ICONS:
+            grp['icon'] = normalize_group_icon(ic_val, DEFAULT_GROUP_ICON)
 
     save_db(db)
     return jsonify({'group': serialize_group(grp, users_by_id)})
@@ -3372,8 +3698,9 @@ def group_member_action():
         muted_members = [m for m in muted_members if m != target_user_id]
     elif action == 'remove':
         if target_user_id in members:
-            nick = users_by_id.get(target_user_id, {}).get('nickname', 'Пользователь')
-            make_system_group_message(db, group_id, f'{nick} вышел')
+            target_nick = users_by_id.get(target_user_id, {}).get('nickname', 'Пользователь')
+            owner_nick = users_by_id.get(user_id, {}).get('nickname', 'Владелец')
+            make_system_group_message(db, group_id, f'{target_nick} был удалён {owner_nick}')
         members = [m for m in members if m != target_user_id]
         muted_members = [m for m in muted_members if m != target_user_id]
     else:
@@ -3408,7 +3735,7 @@ def leave_group():
             db['groups'] = [g for g in db['groups'] if g.get('id') != group_id]
             db['messages'] = [m for m in db['messages'] if m.get('group_id') != group_id]
             save_db(db)
-            return jsonify({'ok': True, 'deleted': True})
+            return jsonify({'ok': True, 'deleted': True, 'left_group_id': group_id})
         new_owner = members[0]
         grp['owner_id'] = new_owner
         muted_members = [m for m in muted_members if m != new_owner]
@@ -3417,7 +3744,7 @@ def leave_group():
     grp['muted_members'] = muted_members
     make_system_group_message(db, group_id, f'{nick} вышел')
     save_db(db)
-    return jsonify({'ok': True, 'left_group_id': group_id})
+    return jsonify({'ok': True, 'left_group_id': group_id, 'group': serialize_group(grp, users_by_id)})
 
 
 @app.route('/api/groups/delete', methods=['POST'])
@@ -3493,7 +3820,8 @@ def get_chats():
         chats.append({
             'id': partner['id'],
             'nickname': partner['nickname'],
-            'avatar': partner.get('avatar', '🕊️'),
+            'avatar': normalize_avatar(partner.get('avatar'), DEFAULT_AVATAR),
+            'dm_policy': normalize_dm_policy(partner.get('dm_policy')),
             'verified': has_any_checkmark(partner['id']),
             'badge_color': get_badge_color_for_user_id(partner['id']),
             'isGroup': False,
@@ -3591,8 +3919,12 @@ def send_message():
             return jsonify({'error': 'Вы не состоите в этой группе'}), 403
         if grp.get('owner_id') != sender_id and sender_id in (grp.get('muted_members') or []):
             return jsonify({'error': 'Владелец группы запретил вам писать сообщения'}), 403
-    elif users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
-        return jsonify({'error': 'Пользователь не найден'}), 404
+    else:
+        if users_by_id and (sender_id not in users_by_id or receiver_id not in users_by_id):
+            return jsonify({'error': 'Пользователь не найден'}), 404
+        recipient = users_by_id.get(receiver_id)
+        if recipient and normalize_dm_policy(recipient.get('dm_policy')) == 'nobody' and sender_id != receiver_id:
+            return jsonify({'error': 'Пользователь запретил входящие сообщения (Никто)'}), 403
 
     now_ms = int(time.time() * 1000)
     clean_reply = None
