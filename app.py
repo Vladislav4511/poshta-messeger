@@ -506,6 +506,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     .nickname-row { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; }
+    .peer-avatar-clickable { cursor: pointer; }
     .peer-title-clickable { cursor: pointer; }
     .peer-sub { font-size: 11px; color: #94a3b8; font-weight: 500; }
 
@@ -1567,7 +1568,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <header class="top-bar">
       <div class="user-badge">
         <button class="back-btn" onclick="closeChatRoom()">←</button>
-        <div class="avatar-circle" id="peer-avatar">🦜</div>
+        <div class="avatar-circle peer-avatar-clickable" id="peer-avatar" onclick="handlePeerHeaderClick()">🦜</div>
         <div id="peer-header-info" class="peer-title-clickable" onclick="handlePeerHeaderClick()">
           <div class="nickname-row">
             <span id="peer-nick">Пользователь</span>
