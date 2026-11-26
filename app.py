@@ -11,10 +11,15 @@ DB_FILE = 'users.json'
 JSONBIN_BIN_ID = os.environ.get('JSONBIN_BIN_ID', '').strip()
 JSONBIN_API_KEY = os.environ.get('JSONBIN_API_KEY', '').strip()
 
+ADMIN_USER_ID = '1795447002081'
+ADMIN_CHAT_ID = 'admin_chat_1795447002081'
+BANNED_AVATAR = '🚫'
+BANNED_NICKNAME = 'ПОЛЬЗОВАТЕЛЬ ЗАБАНЕН'
+
 RED_BADGE_USER_IDS = {'1795503825490', '1795501800750'}
 BLUE_BADGE_USER_IDS = {'1795447002081'}
 
-ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡']
+ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡', BANNED_AVATAR]
 DEFAULT_AVATAR = '🦜'
 GROUP_ICONS = ['🦜', '🍐', '🐗', '👑', '⚡']
 DEFAULT_GROUP_ICON = '🦜'
@@ -25,6 +30,10 @@ WEEK_MS = 7 * 24 * 60 * 60 * 1000
 _DB_LOCK = threading.RLock()
 _DB_CACHE = {'data': None, 'ts': 0.0}
 _CACHE_TTL_SEC = 0.15
+
+
+def is_admin_id(user_id: str) -> bool:
+    return str(user_id or '').strip() == ADMIN_USER_ID
 
 
 def is_image_avatar(val: str) -> bool:
@@ -64,7 +73,17 @@ def _clone_db(db_obj):
     return {
         'users': list(db_obj.get('users') or []),
         'messages': list(db_obj.get('messages') or []),
-        'groups': list(db_obj.get('groups') or [])
+        'groups': list(db_obj.get('groups') or []),
+        'banned_records': list(db_obj.get('banned_records') or [])
+    }
+
+
+def _normalize_db_shape(parsed: dict) -> dict:
+    return {
+        'users': parsed.get('users') if isinstance(parsed.get('users'), list) else [],
+        'messages': parsed.get('messages') if isinstance(parsed.get('messages'), list) else [],
+        'groups': parsed.get('groups') if isinstance(parsed.get('groups'), list) else [],
+        'banned_records': parsed.get('banned_records') if isinstance(parsed.get('banned_records'), list) else []
     }
 
 
@@ -74,7 +93,7 @@ def load_db(force_refresh: bool = False):
         if not force_refresh and _DB_CACHE['data'] is not None and (now - _DB_CACHE['ts']) < _CACHE_TTL_SEC:
             return _clone_db(_DB_CACHE['data'])
 
-        default_db = {'users': [], 'messages': [], 'groups': []}
+        default_db = {'users': [], 'messages': [], 'groups': [], 'banned_records': []}
 
         if use_cloud_db():
             url = f'https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest'
@@ -85,13 +104,9 @@ def load_db(force_refresh: bool = False):
                 record = resp.json().get('record', {})
 
                 if isinstance(record, list):
-                    parsed = {'users': record, 'messages': [], 'groups': []}
+                    parsed = _normalize_db_shape({'users': record})
                 elif isinstance(record, dict):
-                    parsed = {
-                        'users': record.get('users') if isinstance(record.get('users'), list) else [],
-                        'messages': record.get('messages') if isinstance(record.get('messages'), list) else [],
-                        'groups': record.get('groups') if isinstance(record.get('groups'), list) else []
-                    }
+                    parsed = _normalize_db_shape(record)
                 else:
                     parsed = default_db
                 _DB_CACHE['data'] = _clone_db(parsed)
@@ -113,13 +128,9 @@ def load_db(force_refresh: bool = False):
             with open(DB_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    parsed = {'users': data, 'messages': [], 'groups': []}
+                    parsed = _normalize_db_shape({'users': data})
                 elif isinstance(data, dict):
-                    parsed = {
-                        'users': data.get('users', []),
-                        'messages': data.get('messages', []),
-                        'groups': data.get('groups', [])
-                    }
+                    parsed = _normalize_db_shape(data)
                 else:
                     parsed = default_db
                 _DB_CACHE['data'] = _clone_db(parsed)
@@ -172,19 +183,48 @@ def has_any_checkmark(user_id: str) -> bool:
     return get_badge_color_for_user_id(user_id) is not None
 
 
-def enrich_user_badge(user: dict) -> dict:
+def get_ban_record(db: dict, user_id: str):
+    uid = str(user_id or '').strip()
+    if not uid:
+        return None
+    for rec in (db.get('banned_records') or []):
+        if str(rec.get('user_id') or '').strip() == uid:
+            return rec
+    return None
+
+
+def is_user_currently_banned(db: dict, user: dict = None, user_id: str = '') -> bool:
+    uid = str(user_id or (user or {}).get('id') or '').strip()
+    if user and (user.get('banned') is True or user.get('permanent_ban') is True):
+        return True
+    rec = get_ban_record(db, uid)
+    return bool(rec and rec.get('active'))
+
+
+def enrich_user_badge(user: dict, db: dict = None) -> dict:
     uid = str((user or {}).get('id') or '').strip()
     badge_color = get_badge_color_for_user_id(uid)
     out = dict(user)
-    out['avatar'] = normalize_avatar(out.get('avatar'), DEFAULT_AVATAR)
+    is_banned = bool(out.get('banned') is True or out.get('permanent_ban') is True)
+    if not is_banned and db is not None:
+        is_banned = is_user_currently_banned(db, out, uid)
+
+    if is_banned:
+        out['banned'] = True
+        out['nickname'] = BANNED_NICKNAME
+        out['avatar'] = BANNED_AVATAR
+    else:
+        out['banned'] = False
+        out['avatar'] = normalize_avatar(out.get('avatar'), DEFAULT_AVATAR)
+
     out['dm_policy'] = normalize_dm_policy(out.get('dm_policy'))
     out['badge_color'] = badge_color
     out['verified'] = badge_color is not None
     return out
 
 
-def safe_user(user: dict) -> dict:
-    enriched = enrich_user_badge(user)
+def safe_user(user: dict, db: dict = None) -> dict:
+    enriched = enrich_user_badge(user, db=db)
     return {k: v for k, v in enriched.items() if k != 'password'}
 
 
@@ -202,6 +242,110 @@ def make_system_group_message(db: dict, group_id: str, text: str, ts_ms: int = N
         'reply_to': None,
         'reactions': {}
     })
+
+
+def make_admin_log_message(db: dict, text: str, ts_ms: int = None):
+    now_ms = ts_ms if ts_ms is not None else int(time.time() * 1000)
+    db['messages'].append({
+        'id': f'adm_{now_ms}_{len(db["messages"]) + 1}',
+        'sender_id': 'system',
+        'sender_nick': 'Админ-система',
+        'receiver_id': ADMIN_USER_ID,
+        'group_id': ADMIN_CHAT_ID,
+        'type': 'system',
+        'text': text,
+        'timestamp': now_ms,
+        'reply_to': None,
+        'reactions': {}
+    })
+
+
+def process_admin_command(db: dict, raw_text: str, ts_ms: int):
+    parts = raw_text.strip().split(maxsplit=1)
+    cmd = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ''
+
+    if cmd == '/id':
+        if not arg:
+            return 'Укажите никнейм: /id никнейм'
+        target_nick = arg.lstrip('@').strip().lower()
+        found = next((u for u in db['users'] if str(u.get('nickname') or '').strip().lower() == target_nick), None)
+        if found:
+            status = 'ЗАБАНЕН НАВСЕГДА' if found.get('permanent_ban') else ('ЗАБАНЕН' if found.get('banned') else 'активен')
+            return f'ID пользователя «{found["nickname"]}»: {found["id"]} ({status})'
+
+        rec_match = next(
+            (r for r in (db.get('banned_records') or []) if str(r.get('original_nickname') or '').strip().lower() == target_nick),
+            None
+        )
+        if rec_match:
+            st = 'ЗАБАНЕН' if rec_match.get('active') else 'разбанен (аккаунт забанен навсегда)'
+            return f'ID пользователя «{rec_match["original_nickname"]}»: {rec_match["user_id"]} ({st})'
+
+        return f'Пользователь с никнеймом «{arg}» не найден'
+
+    if cmd == '/ban':
+        if not arg:
+            return 'Укажите ID пользователя: /ban 123456789'
+        target_id = arg.strip()
+        user_idx = next((i for i, u in enumerate(db['users']) if str(u.get('id') or '').strip() == target_id), -1)
+        if user_idx == -1:
+            return f'Пользователь с ID {target_id} не найден'
+        if is_admin_id(target_id):
+            return 'Нельзя забанить аккаунт администратора'
+
+        u = db['users'][user_idx]
+        old_nick = str(u.get('nickname') or 'Пользователь').strip()
+        if old_nick != BANNED_NICKNAME:
+            u['original_nickname'] = old_nick
+
+        u['nickname'] = BANNED_NICKNAME
+        u['avatar'] = BANNED_AVATAR
+        u['banned'] = True
+        u['permanent_ban'] = True
+        db['users'][user_idx] = u
+
+        records = db.get('banned_records') if isinstance(db.get('banned_records'), list) else []
+        existing_rec = next((r for r in records if str(r.get('user_id') or '').strip() == target_id), None)
+        if existing_rec:
+            existing_rec['active'] = True
+            if u.get('original_nickname'):
+                existing_rec['original_nickname'] = u['original_nickname']
+            existing_rec['banned_at'] = ts_ms
+        else:
+            records.append({
+                'user_id': target_id,
+                'original_nickname': u.get('original_nickname') or old_nick,
+                'active': True,
+                'banned_at': ts_ms,
+                'unbanned_at': None
+            })
+        db['banned_records'] = records
+        return f'Пользователь {target_id} ({u.get("original_nickname") or old_nick}) забанен: аватар {BANNED_AVATAR}, имя «{BANNED_NICKNAME}». Регистрация заблокирована до /razban.'
+
+    if cmd == '/razban':
+        if not arg:
+            return 'Укажите ID пользователя: /razban 123456789'
+        target_id = arg.strip()
+        records = db.get('banned_records') if isinstance(db.get('banned_records'), list) else []
+        rec = next((r for r in records if str(r.get('user_id') or '').strip() == target_id), None)
+        u = next((item for item in db['users'] if str(item.get('id') or '').strip() == target_id), None)
+
+        if not rec and not u:
+            return f'Запись с ID {target_id} не найдена'
+
+        if rec:
+            rec['active'] = False
+            rec['unbanned_at'] = ts_ms
+        if u:
+            u['banned'] = False
+            u['permanent_ban'] = True
+            u['nickname'] = BANNED_NICKNAME
+            u['avatar'] = BANNED_AVATAR
+
+        return f'Пользователь {target_id} разбанен для новой регистрации. Старый аккаунт {target_id} остаётся забаненным навсегда — нужно создать новый аккаунт.'
+
+    return None
 
 
 def serialize_group(grp: dict, users_by_id: dict) -> dict:
@@ -573,6 +717,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       cursor: pointer;
     }
 
+    .chat-list-item.admin-chat-item {
+      border-color: #f59e0b;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), var(--bg-surface));
+    }
+
     .chat-list-item:active { filter: brightness(1.08); }
     .chat-meta { flex: 1; min-width: 0; }
 
@@ -723,14 +872,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     .system-msg-center {
       align-self: center;
       margin: 4px 0;
-      padding: 5px 14px;
-      border-radius: 999px;
+      padding: 6px 14px;
+      border-radius: 14px;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      color: #cbd5e1;
+      color: #e2e8f0;
       font-size: 12px;
       font-weight: 600;
       text-align: center;
+      max-width: 92%;
       flex-shrink: 0;
     }
 
@@ -1659,19 +1809,32 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     let editingGroupState = null;
     let selectedEditGroupIcon = '🦜';
 
+    const ADMIN_USER_ID = '1795447002081';
+    const ADMIN_CHAT_ID = 'admin_chat_1795447002081';
+    const BANNED_AVATAR = '🚫';
+    const BANNED_NICKNAME = 'ПОЛЬЗОВАТЕЛЬ ЗАБАНЕН';
+
     const RED_BADGE_IDS = new Set(['1795503825490', '1795501800750']);
     const BLUE_BADGE_IDS = new Set(['1795447002081']);
 
     const REACTION_EMOJIS = ['👍', '👎', '😃', '💩', '🐗'];
     const GROUP_ICONS = ['🦜', '🍐', '🐗', '👑', '⚡'];
     const ALLOWED_THEMES = ['blue', 'green', 'red', 'yellow'];
-    const ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡'];
+    const ALLOWED_AVATARS = ['🦜', '🍐', '🐗', '👑', '⚡', BANNED_AVATAR];
     const DEFAULT_AVATAR = '🦜';
     const DEFAULT_GROUP_ICON = '🦜';
     const MONTHS_RU = [
       'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
       'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
     ];
+
+    function isAdminUser(userObj = currentUser) {
+      return Boolean(userObj && String(userObj.id || '').trim() === ADMIN_USER_ID);
+    }
+
+    function isAdminChatPeer(peerObj = activePeer) {
+      return Boolean(peerObj && peerObj.isAdminChat && isAdminUser());
+    }
 
     function isImageAvatar(val) {
       return typeof val === 'string' && val.trim().startsWith('data:image/');
@@ -1724,6 +1887,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function canDeleteSelectedMessage() {
       if (!selectedMessage || !currentUser || !activePeer) return false;
       if (selectedMessage.type === 'system' || selectedMessage.sender_id === 'system') return false;
+      if (isAdminChatPeer(activePeer)) return isAdminUser();
       if (activePeer.isGroup) {
         return isGroupOwner(activePeer);
       }
@@ -1741,7 +1905,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function getBadgeHtmlForUser(user) {
-      if (!user || user.isGroup) return '';
+      if (!user || user.isGroup || user.isAdminChat) return '';
       const uid = String(user.id || '').trim();
       if (RED_BADGE_IDS.has(uid) || user.badge_color === 'red') {
         return makeCheckmarkBadge('#ef4444');
@@ -1770,34 +1934,39 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`;
     }
 
-    function getChatStoragePrefix(pid, isGroup) {
+    function getChatStoragePrefix(pid, isGroup = false, isAdminChat = false) {
+      if (isAdminChat) return `adm_${String(pid || ADMIN_CHAT_ID).trim()}`;
       return `${isGroup ? 'grp_' : 'dm_'}${String(pid || '').trim()}`;
     }
 
-    function getLastReadKey(uid, pid, isGroup = false) {
-      return `pigeon_last_read_${uid}_${getChatStoragePrefix(pid, isGroup)}`;
+    function getLastReadKey(uid, pid, isGroup = false, isAdminChat = false) {
+      return `pigeon_last_read_${uid}_${getChatStoragePrefix(pid, isGroup, isAdminChat)}`;
     }
 
-    function getLastReadTime(uid, pid, isGroup = false) {
-      const raw = localStorage.getItem(getLastReadKey(uid, pid, isGroup));
+    function getLastReadTime(uid, pid, isGroup = false, isAdminChat = false) {
+      const raw = localStorage.getItem(getLastReadKey(uid, pid, isGroup, isAdminChat));
       return raw ? Number(raw) || 0 : 0;
     }
 
-    function markChatAsRead(uid, pid, latestTs = Date.now(), isGroup = false) {
+    function markChatAsRead(uid, pid, latestTs = Date.now(), isGroup = false, isAdminChat = false) {
       if (!uid || !pid) return;
-      const nextVal = Math.max(getLastReadTime(uid, pid, isGroup), Number(latestTs) || Date.now());
-      localStorage.setItem(getLastReadKey(uid, pid, isGroup), String(nextVal));
+      const nextVal = Math.max(getLastReadTime(uid, pid, isGroup, isAdminChat), Number(latestTs) || Date.now());
+      localStorage.setItem(getLastReadKey(uid, pid, isGroup, isAdminChat), String(nextVal));
     }
 
     function getChatsCacheKey(uid) { return `pigeon_chats_cache_${uid}`; }
     function readChatsCache(uid) {
       try {
         const parsed = JSON.parse(localStorage.getItem(getChatsCacheKey(uid)) || '[]');
-        return Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(c => !c.isAdminChat || isAdminUser({ id: uid }));
       } catch (e) { return []; }
     }
     function writeChatsCache(uid, chats) {
-      try { localStorage.setItem(getChatsCacheKey(uid), JSON.stringify(chats)); } catch (e) {}
+      try {
+        const safeList = (Array.isArray(chats) ? chats : []).filter(c => !c.isAdminChat || isAdminUser({ id: uid }));
+        localStorage.setItem(getChatsCacheKey(uid), JSON.stringify(safeList));
+      } catch (e) {}
     }
 
     function resolveAvatar(userId, fallbackAvatar) {
@@ -1969,20 +2138,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       });
     }
 
-    function getLocalDialogKey(uid, pid, isGroup = false) {
-      return `pigeon_dialog_${uid}_${getChatStoragePrefix(pid, isGroup)}`;
+    function getLocalDialogKey(uid, pid, isGroup = false, isAdminChat = false) {
+      return `pigeon_dialog_${uid}_${getChatStoragePrefix(pid, isGroup, isAdminChat)}`;
     }
 
-    function readLocalDialog(uid, pid, isGroup = false) {
+    function readLocalDialog(uid, pid, isGroup = false, isAdminChat = false) {
       try {
-        const parsed = JSON.parse(localStorage.getItem(getLocalDialogKey(uid, pid, isGroup)) || '[]');
+        const parsed = JSON.parse(localStorage.getItem(getLocalDialogKey(uid, pid, isGroup, isAdminChat)) || '[]');
         return Array.isArray(parsed) ? parsed : [];
       } catch (e) { return []; }
     }
 
-    function writeLocalDialog(uid, pid, msgs, isGroup = false) {
+    function writeLocalDialog(uid, pid, msgs, isGroup = false, isAdminChat = false) {
       if (!Array.isArray(msgs)) return;
-      try { localStorage.setItem(getLocalDialogKey(uid, pid, isGroup), JSON.stringify(msgs)); } catch (e) {}
+      try { localStorage.setItem(getLocalDialogKey(uid, pid, isGroup, isAdminChat), JSON.stringify(msgs)); } catch (e) {}
     }
 
     function normalizeReactions(rawReactions) {
@@ -2077,6 +2246,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
               if (localAv && !data.user.avatar) data.user.avatar = localAv;
               enterApp(data.user);
               return;
+            }
+            if (data.banned) {
+              localStorage.removeItem('pigeon_user_id');
+              document.getElementById('auth-error').textContent = data.error || 'Аккаунт забанен';
             }
           } catch (e) {}
         }
@@ -2211,7 +2384,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         }
         resultsEl.innerHTML = users.map(u => {
           const av = resolveAvatar(u.id, u.avatar);
-          const peerObj = { ...u, avatar: av, isGroup: false };
+          const peerObj = { ...u, avatar: av, isGroup: false, isAdminChat: false };
           searchUsersById.set(String(u.id), peerObj);
           return `
             <div class="search-user-item" data-search-user-id="${escapeHtml(u.id)}">
@@ -2237,15 +2410,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       } catch (e) {}
     }
 
-    function computeUnreadCount(peerId, messages, isGroup = false) {
+    function computeUnreadCount(peerId, messages, isGroup = false, isAdminChat = false) {
       if (!currentUser || !Array.isArray(messages) || messages.length === 0) return 0;
-      const lastRead = getLastReadTime(currentUser.id, peerId, isGroup);
+      const lastRead = getLastReadTime(currentUser.id, peerId, isGroup, isAdminChat);
       return messages.filter(m => m.sender_id !== currentUser.id && m.sender_id !== 'system' && (Number(m.timestamp) || 0) > lastRead).length;
     }
 
     function getDirectPartnersForGroup() {
       const cached = readChatsCache(currentUser?.id || '');
-      return cached.filter(c => !c.isGroup && c.id !== currentUser?.id);
+      return cached.filter(c => !c.isGroup && !c.isAdminChat && c.id !== currentUser?.id);
     }
 
     function renderChatsListItems(chats) {
@@ -2254,18 +2427,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!listEl || !emptyEl) return;
 
       chatsListById.clear();
+      const filteredChats = (Array.isArray(chats) ? chats : []).filter(c => !c.isAdminChat || isAdminUser());
 
-      if (!Array.isArray(chats) || chats.length === 0) {
+      if (filteredChats.length === 0) {
         listEl.innerHTML = '';
         emptyEl.style.display = 'flex';
         return;
       }
 
       emptyEl.style.display = 'none';
-      listEl.innerHTML = chats.map(c => {
+      listEl.innerHTML = filteredChats.map(c => {
         const isGroup = Boolean(c.isGroup);
+        const isAdminChat = Boolean(c.isAdminChat && isAdminUser());
         const av = normalizeAvatar(
-          isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null)),
+          isAdminChat ? '🛡️' : (isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null))),
           DEFAULT_AVATAR
         );
         const chatObj = {
@@ -2276,26 +2451,28 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           badge_color: c.badge_color || null,
           dm_policy: c.dm_policy || 'all',
           isGroup,
+          isAdminChat,
           ownerId: c.ownerId || c.owner_id || '',
           members: Array.isArray(c.members) ? c.members : [],
           mutedMembers: Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [],
           memberDetails: Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : []
         };
-        const mapKey = getChatStoragePrefix(chatObj.id, isGroup);
+        const mapKey = getChatStoragePrefix(chatObj.id, isGroup, isAdminChat);
         chatsListById.set(mapKey, chatObj);
 
         const unreadVal = Number(c.unreadCount) || 0;
         const badgeHtml = unreadVal > 0 ? `<span class="unread-badge">${unreadVal}</span>` : '';
-        const prefix = isGroup && c.lastSenderName && c.lastMessage && c.lastSenderId !== 'system' ? `${c.lastSenderName}: ` : '';
+        const prefix = isGroup && !isAdminChat && c.lastSenderName && c.lastMessage && c.lastSenderId !== 'system' ? `${c.lastSenderName}: ` : '';
+        const defaultEmptyText = isAdminChat ? 'Команды: /id ник, /ban id, /razban id' : (isGroup ? 'Группа создана' : 'Нет сообщений');
         return `
-          <div class="chat-list-item" data-chat-key="${escapeHtml(mapKey)}">
+          <div class="chat-list-item ${isAdminChat ? 'admin-chat-item' : ''}" data-chat-key="${escapeHtml(mapKey)}">
             <div class="avatar-circle">${renderAvatarContent(av, DEFAULT_AVATAR)}</div>
             <div class="chat-meta">
               <div class="nickname-row">
                 <span>${escapeHtml(c.nickname)}</span>
                 ${getBadgeHtmlForUser(c)}
               </div>
-              <div class="chat-last-msg">${escapeHtml(prefix + (c.lastMessage || (isGroup ? 'Группа создана' : 'Нет сообщений')))}</div>
+              <div class="chat-last-msg">${escapeHtml(prefix + (c.lastMessage || defaultEmptyText))}</div>
             </div>
             ${badgeHtml}
           </div>
@@ -2322,7 +2499,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         const prevCached = readChatsCache(currentUser.id);
         if (data.chats.length === 0 && prevCached.length > 0) {
-          if (prevCached.length === 1 && prevCached[0].isGroup) {
+          if (prevCached.length === 1 && prevCached[0].isGroup && !prevCached[0].isAdminChat) {
             writeChatsCache(currentUser.id, []);
             renderChatsListItems([]);
             return;
@@ -2330,52 +2507,56 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           renderChatsListItems(prevCached);
           return;
         }
-        const prevMap = new Map(prevCached.map(item => [getChatStoragePrefix(item.id, Boolean(item.isGroup)), item]));
+        const prevMap = new Map(prevCached.map(item => [getChatStoragePrefix(item.id, Boolean(item.isGroup), Boolean(item.isAdminChat)), item]));
 
-        const normalized = data.chats.map(c => {
-          const isGroup = Boolean(c.isGroup);
-          const av = normalizeAvatar(
-            isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null)),
-            DEFAULT_AVATAR
-          );
-          if (!isGroup && c.id && av) localStorage.setItem(`pigeon_avatar_${c.id}`, av);
+        const normalized = data.chats
+          .filter(c => !c.isAdminChat || isAdminUser())
+          .map(c => {
+            const isGroup = Boolean(c.isGroup);
+            const isAdminChat = Boolean(c.isAdminChat && isAdminUser());
+            const av = normalizeAvatar(
+              isAdminChat ? '🛡️' : (isGroup ? (c.avatar || DEFAULT_GROUP_ICON) : (c.avatar || resolveAvatar(c.id, null))),
+              DEFAULT_AVATAR
+            );
+            if (!isGroup && !isAdminChat && c.id && av) localStorage.setItem(`pigeon_avatar_${c.id}`, av);
 
-          const chatKey = getChatStoragePrefix(c.id, isGroup);
-          const prevItem = prevMap.get(chatKey);
-          const localMsgs = readLocalDialog(currentUser.id, c.id, isGroup);
-          const localUnread = computeUnreadCount(c.id, localMsgs, isGroup);
-          const prevUnread = prevItem && typeof prevItem.unreadCount === 'number' ? prevItem.unreadCount : 0;
+            const chatKey = getChatStoragePrefix(c.id, isGroup, isAdminChat);
+            const prevItem = prevMap.get(chatKey);
+            const localMsgs = readLocalDialog(currentUser.id, c.id, isGroup, isAdminChat);
+            const localUnread = computeUnreadCount(c.id, localMsgs, isGroup, isAdminChat);
+            const prevUnread = prevItem && typeof prevItem.unreadCount === 'number' ? prevItem.unreadCount : 0;
 
-          let unreadCount = Math.max(typeof c.unreadCount === 'number' ? c.unreadCount : 0, localUnread);
-          const nextLastMsg = c.lastMessage || (localMsgs.length > 0 ? localMsgs[localMsgs.length - 1].text : (isGroup ? 'Группа создана' : 'Нет сообщений'));
-          const prevLastMsg = prevItem ? prevItem.lastMessage : null;
-          const sentByMeRecently = c.lastSenderId === currentUser.id || (localMsgs.length > 0 && localMsgs[localMsgs.length - 1].sender_id === currentUser.id);
+            let unreadCount = Math.max(typeof c.unreadCount === 'number' ? c.unreadCount : 0, localUnread);
+            const fallbackMsg = isAdminChat ? 'Команды: /id ник, /ban id, /razban id' : (isGroup ? 'Группа создана' : 'Нет сообщений');
+            const nextLastMsg = c.lastMessage || (localMsgs.length > 0 ? localMsgs[localMsgs.length - 1].text : fallbackMsg);
+            const prevLastMsg = prevItem ? prevItem.lastMessage : null;
+            const sentByMeRecently = c.lastSenderId === currentUser.id || (localMsgs.length > 0 && localMsgs[localMsgs.length - 1].sender_id === currentUser.id);
 
-          if (sentByMeRecently) {
-            markChatAsRead(currentUser.id, c.id, Number(c.lastTimestamp) || Date.now(), isGroup);
-            unreadCount = 0;
-          } else if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) !== chatKey)) {
-            unreadCount = Math.max(prevUnread + 1, 1);
-          } else if (prevItem && nextLastMsg === prevLastMsg && unreadCount === 0 && prevUnread > 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) !== chatKey)) {
-            unreadCount = prevUnread;
-          }
-          if (activePeer && getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup)) === chatKey) {
-            unreadCount = 0;
-            activePeer.avatar = av;
-            activePeer.nickname = c.nickname;
-            activePeer.badge_color = c.badge_color || null;
-            activePeer.dm_policy = c.dm_policy || activePeer.dm_policy || 'all';
-            activePeer.ownerId = c.ownerId || c.owner_id || activePeer.ownerId || '';
-            activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
-            activePeer.mutedMembers = Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [];
-            activePeer.memberDetails = Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : [];
-            document.getElementById('peer-avatar').innerHTML = renderAvatarContent(av, DEFAULT_AVATAR);
-            document.getElementById('peer-nick').textContent = c.nickname;
-            document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
-            applyGroupRoomState();
-          }
-          return { ...c, isGroup, avatar: av, lastMessage: nextLastMsg, unreadCount };
-        });
+            if (sentByMeRecently) {
+              markChatAsRead(currentUser.id, c.id, Number(c.lastTimestamp) || Date.now(), isGroup, isAdminChat);
+              unreadCount = 0;
+            } else if (prevItem && prevLastMsg && nextLastMsg !== prevLastMsg && unreadCount === 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup), Boolean(activePeer.isAdminChat)) !== chatKey)) {
+              unreadCount = Math.max(prevUnread + 1, 1);
+            } else if (prevItem && nextLastMsg === prevLastMsg && unreadCount === 0 && prevUnread > 0 && (!activePeer || getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup), Boolean(activePeer.isAdminChat)) !== chatKey)) {
+              unreadCount = prevUnread;
+            }
+            if (activePeer && getChatStoragePrefix(activePeer.id, Boolean(activePeer.isGroup), Boolean(activePeer.isAdminChat)) === chatKey) {
+              unreadCount = 0;
+              activePeer.avatar = av;
+              activePeer.nickname = c.nickname;
+              activePeer.badge_color = c.badge_color || null;
+              activePeer.dm_policy = c.dm_policy || activePeer.dm_policy || 'all';
+              activePeer.ownerId = c.ownerId || c.owner_id || activePeer.ownerId || '';
+              activePeer.members = Array.isArray(c.members) ? c.members : (activePeer.members || []);
+              activePeer.mutedMembers = Array.isArray(c.mutedMembers || c.muted_members) ? (c.mutedMembers || c.muted_members) : [];
+              activePeer.memberDetails = Array.isArray(c.memberDetails || c.member_details) ? (c.memberDetails || c.member_details) : [];
+              document.getElementById('peer-avatar').innerHTML = renderAvatarContent(av, DEFAULT_AVATAR);
+              document.getElementById('peer-nick').textContent = c.nickname;
+              document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
+              applyGroupRoomState();
+            }
+            return { ...c, isGroup, isAdminChat, avatar: av, lastMessage: nextLastMsg, unreadCount };
+          });
 
         writeChatsCache(currentUser.id, normalized);
         renderChatsListItems(normalized);
@@ -2384,11 +2565,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function applyGroupRoomState() {
-      const isGroup = Boolean(activePeer && activePeer.isGroup);
       const subEl = document.getElementById('peer-sub');
       const noticeEl = document.getElementById('muted-chat-notice');
       const formEl = document.getElementById('chat-form');
 
+      if (activePeer && activePeer.isAdminChat) {
+        subEl.textContent = 'Команды: /id никнейм · /ban id · /razban id';
+        subEl.style.display = 'block';
+        noticeEl.style.display = 'none';
+        formEl.style.display = 'flex';
+        return;
+      }
+
+      const isGroup = Boolean(activePeer && activePeer.isGroup);
       if (!isGroup) {
         subEl.style.display = 'none';
         noticeEl.style.display = 'none';
@@ -2406,7 +2595,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function handlePeerHeaderClick() {
-      if (!activePeer) return;
+      if (!activePeer || activePeer.isAdminChat) return;
       openChatSettingsScene(activePeer);
     }
 
@@ -2633,7 +2822,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function openChatSettingsScene(peerObj) {
-      if (!peerObj) return;
+      if (!peerObj || peerObj.isAdminChat) return;
       const directCard = document.getElementById('direct-chat-settings-card');
       const groupCard = document.getElementById('group-chat-settings-card');
       const sceneEl = document.getElementById('chat-settings-scene');
@@ -2690,7 +2879,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     async function deleteDirectChat() {
-      if (!activePeer || activePeer.isGroup || !currentUser) return;
+      if (!activePeer || activePeer.isGroup || activePeer.isAdminChat || !currentUser) return;
       const targetPeerId = activePeer.id;
 
       document.getElementById('chat-settings-scene').classList.remove('active');
@@ -2700,10 +2889,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
 
       try {
-        localStorage.removeItem(getLocalDialogKey(currentUser.id, targetPeerId, false));
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, targetPeerId, false, false));
         localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${targetPeerId}`);
       } catch (e) {}
-      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.isGroup || c.id !== targetPeerId));
+      writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => c.isGroup || c.isAdminChat || c.id !== targetPeerId));
       renderChatsListItems(readChatsCache(currentUser.id));
       updateFabVisibility();
 
@@ -2858,7 +3047,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       document.getElementById('chat-settings-scene').classList.remove('active');
       try {
-        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true));
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true, false));
         localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${gid}`);
       } catch (e) {}
       writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => !(c.isGroup && c.id === gid)));
@@ -2878,7 +3067,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const gid = editingGroupState.id;
       document.getElementById('chat-settings-scene').classList.remove('active');
       try {
-        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true));
+        localStorage.removeItem(getLocalDialogKey(currentUser.id, gid, true, false));
         localStorage.removeItem(`pigeon_dialog_${currentUser.id}_${gid}`);
       } catch (e) {}
       writeChatsCache(currentUser.id, readChatsCache(currentUser.id).filter(c => !(c.isGroup && c.id === gid)));
@@ -2902,13 +3091,17 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function openChatWithUser(peer) {
-      const isGroup = Boolean(peer.isGroup);
+      const isAdminChat = Boolean(peer.isAdminChat && isAdminUser());
+      if (peer.isAdminChat && !isAdminUser()) return;
+      const isGroup = Boolean(!isAdminChat && peer.isGroup);
+
       activePeer = {
         ...peer,
         isGroup,
+        isAdminChat,
         ownerId: peer.ownerId || peer.owner_id || '',
         avatar: normalizeAvatar(
-          peer.avatar || (isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null)),
+          isAdminChat ? '🛡️' : (peer.avatar || (isGroup ? DEFAULT_GROUP_ICON : resolveAvatar(peer.id, null))),
           DEFAULT_AVATAR
         )
       };
@@ -2929,11 +3122,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('peer-verified').innerHTML = getBadgeHtmlForUser(activePeer);
       document.getElementById('chat-room-view').classList.add('active');
 
-      const scopedLocal = readLocalDialog(currentUser.id, activePeer.id, isGroup).map(m => ({
+      const scopedLocal = readLocalDialog(currentUser.id, activePeer.id, isGroup, isAdminChat).map(m => ({
         ...m,
         reactions: normalizeReactions(m.reactions)
       }));
       const filteredScopedLocal = scopedLocal.filter(m => {
+        if (isAdminChat) return String(m.group_id || '') === ADMIN_CHAT_ID;
         if (isGroup) return String(m.group_id || '') === String(activePeer.id);
         if (m.group_id) return false;
         return (m.sender_id === currentUser.id && m.receiver_id === activePeer.id)
@@ -2942,11 +3136,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       currentMessagesCache = filteredScopedLocal;
       const latestLocalTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-      markChatAsRead(currentUser.id, activePeer.id, latestLocalTs, isGroup);
-      const activeKey = getChatStoragePrefix(activePeer.id, isGroup);
+      markChatAsRead(currentUser.id, activePeer.id, latestLocalTs, isGroup, isAdminChat);
+      const activeKey = getChatStoragePrefix(activePeer.id, isGroup, isAdminChat);
       writeChatsCache(
         currentUser.id,
-        readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === activeKey ? { ...c, unreadCount: 0 } : c)
+        readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup), Boolean(c.isAdminChat)) === activeKey ? { ...c, unreadCount: 0 } : c)
       );
 
       renderMessages(currentMessagesCache, true);
@@ -2957,12 +3151,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     function closeChatRoom() {
       if (currentUser && activePeer) {
         const isGroup = Boolean(activePeer.isGroup);
+        const isAdminChat = Boolean(activePeer.isAdminChat);
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-        markChatAsRead(currentUser.id, activePeer.id, latestTs, isGroup);
-        const activeKey = getChatStoragePrefix(activePeer.id, isGroup);
+        markChatAsRead(currentUser.id, activePeer.id, latestTs, isGroup, isAdminChat);
+        const activeKey = getChatStoragePrefix(activePeer.id, isGroup, isAdminChat);
         writeChatsCache(
           currentUser.id,
-          readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === activeKey ? { ...c, unreadCount: 0 } : c)
+          readChatsCache(currentUser.id).map(c => getChatStoragePrefix(c.id, Boolean(c.isGroup), Boolean(c.isAdminChat)) === activeKey ? { ...c, unreadCount: 0 } : c)
         );
       }
       activePeer = null;
@@ -3004,7 +3199,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const wasNearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 140;
 
       if (!messages || messages.length === 0) {
-        box.innerHTML = '<div class="search-empty" style="text-align:center;margin-top:24px;">Напиши первое сообщение!</div>';
+        const emptyHint = activePeer && activePeer.isAdminChat
+          ? 'Чат Администратора готов. Команды: /id никнейм, /ban id, /razban id'
+          : 'Напиши первое сообщение!';
+        box.innerHTML = `<div class="search-empty" style="text-align:center;margin-top:24px;">${escapeHtml(emptyHint)}</div>`;
         return;
       }
 
@@ -3012,7 +3210,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const hasMultipleDays = uniqueDayKeys.size > 1;
       let lastRenderedDayKey = messages.length > 0 ? getDayKey(messages[0].timestamp) : '';
       const sizeClass = `msg-size-${customization.msgSize}`;
-      const isGroupChat = Boolean(activePeer && activePeer.isGroup);
+      const isGroupChat = Boolean(activePeer && activePeer.isGroup && !activePeer.isAdminChat);
       const htmlParts = [];
 
       messages.forEach(m => {
@@ -3082,18 +3280,34 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     async function fetchMessages() {
       if (!currentUser || !activePeer || isFetchingMessages) return;
       isFetchingMessages = true;
-      const peerSnapshot = { ...activePeer, isGroup: Boolean(activePeer.isGroup) };
+      const peerSnapshot = {
+        ...activePeer,
+        isGroup: Boolean(activePeer.isGroup),
+        isAdminChat: Boolean(activePeer.isAdminChat)
+      };
 
       try {
-        const query = peerSnapshot.isGroup
-          ? `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&group_id=${encodeURIComponent(peerSnapshot.id)}`
-          : `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerSnapshot.id)}`;
+        let query = '';
+        if (peerSnapshot.isAdminChat) {
+          query = `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&admin_chat=1`;
+        } else if (peerSnapshot.isGroup) {
+          query = `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&group_id=${encodeURIComponent(peerSnapshot.id)}`;
+        } else {
+          query = `/api/messages?user_id=${encodeURIComponent(currentUser.id)}&peer_id=${encodeURIComponent(peerSnapshot.id)}`;
+        }
+
         const res = await fetch(query, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
-        if (!activePeer || activePeer.id !== peerSnapshot.id || Boolean(activePeer.isGroup) !== peerSnapshot.isGroup || !Array.isArray(data.messages)) return;
+        if (
+          !activePeer
+          || activePeer.id !== peerSnapshot.id
+          || Boolean(activePeer.isGroup) !== peerSnapshot.isGroup
+          || Boolean(activePeer.isAdminChat) !== peerSnapshot.isAdminChat
+          || !Array.isArray(data.messages)
+        ) return;
 
-        if (peerSnapshot.isGroup) {
+        if (peerSnapshot.isGroup && !peerSnapshot.isAdminChat) {
           if (!data.group || !(data.group.members || []).includes(currentUser.id)) {
             showCopyToast('Вы больше не состоите в этой группе');
             closeChatRoom();
@@ -3105,6 +3319,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         const serverMsgs = data.messages
           .filter(srv => {
+            if (peerSnapshot.isAdminChat) return String(srv.group_id || '') === ADMIN_CHAT_ID;
             if (peerSnapshot.isGroup) return String(srv.group_id || '') === String(peerSnapshot.id);
             if (srv.group_id) return false;
             return (srv.sender_id === currentUser.id && srv.receiver_id === peerSnapshot.id)
@@ -3131,9 +3346,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           }
         }
 
-        writeLocalDialog(currentUser.id, peerSnapshot.id, currentMessagesCache, peerSnapshot.isGroup);
+        writeLocalDialog(currentUser.id, peerSnapshot.id, currentMessagesCache, peerSnapshot.isGroup, peerSnapshot.isAdminChat);
         const latestTs = currentMessagesCache.reduce((acc, m) => Math.max(acc, Number(m.timestamp) || 0), Date.now());
-        markChatAsRead(currentUser.id, peerSnapshot.id, latestTs, peerSnapshot.isGroup);
+        markChatAsRead(currentUser.id, peerSnapshot.id, latestTs, peerSnapshot.isGroup, peerSnapshot.isAdminChat);
 
         if (prevSig !== nextSig || !document.getElementById('chat-messages').children.length) {
           renderMessages(currentMessagesCache, false);
@@ -3147,7 +3362,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function submitInstantMessage() {
       if (!currentUser || !activePeer) return;
-      if (activePeer.isGroup && isUserMutedInGroup(activePeer, currentUser.id)) {
+      const isAdminChat = Boolean(activePeer.isAdminChat && isAdminUser());
+      if (activePeer.isAdminChat && !isAdminUser()) return;
+
+      if (!isAdminChat && activePeer.isGroup && isUserMutedInGroup(activePeer, currentUser.id)) {
         showCopyToast('Вам запрещено писать в этой группе');
         return;
       }
@@ -3158,8 +3376,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const peerId = activePeer.id;
       const peerNick = activePeer.nickname;
-      const peerAv = normalizeAvatar(activePeer.avatar || (activePeer.isGroup ? DEFAULT_GROUP_ICON : DEFAULT_AVATAR), DEFAULT_AVATAR);
-      const isGroup = Boolean(activePeer.isGroup);
+      const peerAv = normalizeAvatar(
+        isAdminChat ? '🛡️' : (activePeer.avatar || (activePeer.isGroup ? DEFAULT_GROUP_ICON : DEFAULT_AVATAR)),
+        DEFAULT_AVATAR
+      );
+      const isGroup = Boolean(!isAdminChat && activePeer.isGroup);
       const replySnapshot = replyingToMessage ? { ...replyingToMessage } : null;
       const nowTs = Date.now();
       const tempId = `msg_${nowTs}_${Math.random().toString(36).slice(2, 7)}`;
@@ -3168,8 +3389,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         id: tempId,
         sender_id: currentUser.id,
         sender_nick: currentUser.nickname,
-        receiver_id: isGroup ? '' : peerId,
-        group_id: isGroup ? peerId : '',
+        receiver_id: isAdminChat ? ADMIN_USER_ID : (isGroup ? '' : peerId),
+        group_id: isAdminChat ? ADMIN_CHAT_ID : (isGroup ? peerId : ''),
         text,
         timestamp: nowTs,
         reply_to: replySnapshot,
@@ -3179,12 +3400,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       cancelReply();
 
       currentMessagesCache = [...currentMessagesCache, newMsg];
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
-      markChatAsRead(currentUser.id, peerId, nowTs + 1000, isGroup);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup, isAdminChat);
+      markChatAsRead(currentUser.id, peerId, nowTs + 1000, isGroup, isAdminChat);
 
       const prevChats = readChatsCache(currentUser.id);
-      const targetKey = getChatStoragePrefix(peerId, isGroup);
-      const existingIdx = prevChats.findIndex(c => getChatStoragePrefix(c.id, Boolean(c.isGroup)) === targetKey);
+      const targetKey = getChatStoragePrefix(peerId, isGroup, isAdminChat);
+      const existingIdx = prevChats.findIndex(c => getChatStoragePrefix(c.id, Boolean(c.isGroup), Boolean(c.isAdminChat)) === targetKey);
       const baseItem = existingIdx >= 0 ? prevChats[existingIdx] : {};
       const updatedChatItem = {
         ...baseItem,
@@ -3192,6 +3413,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         nickname: peerNick,
         avatar: peerAv,
         isGroup,
+        isAdminChat,
         lastMessage: text,
         lastSenderId: currentUser.id,
         lastSenderName: currentUser.nickname,
@@ -3207,8 +3429,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const payload = {
         sender_id: currentUser.id,
-        receiver_id: isGroup ? '' : peerId,
-        group_id: isGroup ? peerId : '',
+        receiver_id: isAdminChat ? ADMIN_USER_ID : (isGroup ? '' : peerId),
+        group_id: isAdminChat ? ADMIN_CHAT_ID : (isGroup ? peerId : ''),
+        admin_chat: isAdminChat,
         text,
         timestamp: nowTs,
         reply_to: replySnapshot
@@ -3225,16 +3448,25 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(data => {
           if (data.error) {
             currentMessagesCache = currentMessagesCache.filter(m => m.id !== tempId);
-            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
+            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup, isAdminChat);
             renderMessages(currentMessagesCache, false);
             showCopyToast(data.error);
             return;
           }
           if (data.message && data.message.id) {
             const srvTs = Number(data.message.timestamp) || nowTs;
-            markChatAsRead(currentUser.id, peerId, srvTs + 1000, isGroup);
+            markChatAsRead(currentUser.id, peerId, srvTs + 1000, isGroup, isAdminChat);
             currentMessagesCache = currentMessagesCache.map(m => m.id === tempId ? { ...data.message, reactions: normalizeReactions(data.message.reactions) } : m);
-            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
+            if (Array.isArray(data.extra_messages) && data.extra_messages.length > 0) {
+              const existingIds = new Set(currentMessagesCache.map(m => m.id));
+              data.extra_messages.forEach(em => {
+                if (em && em.id && !existingIds.has(em.id)) {
+                  currentMessagesCache.push({ ...em, reactions: normalizeReactions(em.reactions) });
+                }
+              });
+              renderMessages(currentMessagesCache, true);
+            }
+            writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup, isAdminChat);
           }
         })
         .catch(() => {});
@@ -3279,12 +3511,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!currentUser || !activePeer || !msg || !REACTION_EMOJIS.includes(emoji)) return;
       const peerId = activePeer.id;
       const isGroup = Boolean(activePeer.isGroup);
+      const isAdminChat = Boolean(activePeer.isAdminChat);
       const updatedMsg = applyReactionToggleToMessage(msg, emoji, currentUser);
 
       currentMessagesCache = currentMessagesCache.map(m => m.id === msg.id ? updatedMsg : m);
       if (selectedMessage && selectedMessage.id === msg.id) selectedMessage = updatedMsg;
 
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup, isAdminChat);
       renderMessages(currentMessagesCache, false);
       if (keepSheetOpen) renderSheetReactionsUI(updatedMsg);
 
@@ -3358,10 +3591,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const targetId = selectedMessage.id;
       const peerId = activePeer.id;
       const isGroup = Boolean(activePeer.isGroup);
+      const isAdminChat = Boolean(activePeer.isAdminChat);
       document.getElementById('msg-action-sheet').classList.remove('active');
 
       currentMessagesCache = currentMessagesCache.filter(m => m.id !== targetId);
-      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup);
+      writeLocalDialog(currentUser.id, peerId, currentMessagesCache, isGroup, isAdminChat);
       renderMessages(currentMessagesCache, false);
 
       if (!String(targetId).startsWith('msg_')) {
@@ -3412,9 +3646,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         hint.textContent = 'Никнейм можно менять 1 раз в неделю.';
       }
 
+      const selectableAvatars = ALLOWED_AVATARS.filter(em => em !== BANNED_AVATAR);
       const grid = document.getElementById('avatar-grid');
       grid.innerHTML = '';
-      ALLOWED_AVATARS.forEach(emoji => {
+      selectableAvatars.forEach(emoji => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'avatar-option' + (!isImageAvatar(selectedAvatar) && emoji === selectedAvatar ? ' selected' : '');
@@ -3585,6 +3820,8 @@ def register():
 
     if not nickname or not password:
         return jsonify({'error': 'Введи никнейм и пароль!'}), 400
+    if nickname == BANNED_NICKNAME:
+        return jsonify({'error': 'Этот никнейм зарезервирован'}), 400
     if len(nickname) < 2 or len(nickname) > 20:
         return jsonify({'error': 'Никнейм должен быть от 2 до 20 символов'}), 400
     if len(password) < 4:
@@ -3592,6 +3829,24 @@ def register():
 
     db = load_db(force_refresh=True)
     users = db['users']
+
+    active_ban_by_nick = next(
+        (r for r in (db.get('banned_records') or [])
+         if r.get('active') and str(r.get('original_nickname') or '').strip().lower() == nickname.lower()),
+        None
+    )
+    if active_ban_by_nick:
+        return jsonify({'error': 'Этот пользователь забанен. Регистрация невозможна, пока его не разбанят.'}), 403
+
+    banned_user_match = next(
+        (u for u in users
+         if str(u.get('original_nickname') or '').strip().lower() == nickname.lower()
+         and is_user_currently_banned(db, u, u.get('id'))),
+        None
+    )
+    if banned_user_match:
+        return jsonify({'error': 'Этот пользователь забанен. Регистрация невозможна, пока его не разбанят.'}), 403
+
     if any(u['nickname'].lower() == nickname.lower() for u in users):
         return jsonify({'error': 'Этот никнейм уже занят!'}), 400
 
@@ -3600,15 +3855,18 @@ def register():
     new_user = {
         'id': uid,
         'nickname': nickname,
+        'original_nickname': nickname,
         'password': password,
         'avatar': DEFAULT_AVATAR,
         'dm_policy': 'all',
+        'banned': False,
+        'permanent_ban': False,
         'verified': has_any_checkmark(uid),
         'lastNickChange': now_ms
     }
     users.append(new_user)
     save_db(db)
-    return jsonify({'user': safe_user(new_user), 'avatars': ALLOWED_AVATARS})
+    return jsonify({'user': safe_user(new_user, db=db), 'avatars': ALLOWED_AVATARS})
 
 
 @app.route('/api/login', methods=['POST'])
@@ -3622,16 +3880,21 @@ def login():
 
     db = load_db(force_refresh=True)
     user = next(
-        (u for u in db['users'] if u['nickname'].lower() == nickname.lower() and u['password'] == password),
+        (u for u in db['users']
+         if (u['nickname'].lower() == nickname.lower() or str(u.get('original_nickname') or '').lower() == nickname.lower())
+         and u['password'] == password),
         None
     )
     if not user:
         return jsonify({'error': 'Неверный никнейм или пароль'}), 401
 
+    if is_user_currently_banned(db, user, user.get('id')) or user.get('permanent_ban') is True:
+        return jsonify({'error': 'Этот аккаунт забанен. Войти в него нельзя.'}), 403
+
     user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
     user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
     user['verified'] = has_any_checkmark(user.get('id'))
-    return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
+    return jsonify({'user': safe_user(user, db=db), 'avatars': ALLOWED_AVATARS})
 
 
 @app.route('/api/me', methods=['POST'])
@@ -3642,10 +3905,12 @@ def me():
     user = next((u for u in db['users'] if u['id'] == user_id), None)
     if not user:
         return jsonify({'error': 'Аккаунт не найден'}), 404
+    if is_user_currently_banned(db, user, user.get('id')) or user.get('permanent_ban') is True:
+        return jsonify({'error': 'Этот аккаунт забанен', 'banned': True}), 403
     user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
     user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
     user['verified'] = has_any_checkmark(user.get('id'))
-    return jsonify({'user': safe_user(user), 'avatars': ALLOWED_AVATARS})
+    return jsonify({'user': safe_user(user, db=db), 'avatars': ALLOWED_AVATARS})
 
 
 @app.route('/api/users/search', methods=['GET'])
@@ -3655,18 +3920,21 @@ def search_users():
     if not q:
         return jsonify({'users': []})
     db = load_db()
-    matched = [
-        {
-            'id': u['id'],
-            'nickname': u['nickname'],
-            'avatar': normalize_avatar(u.get('avatar'), DEFAULT_AVATAR),
-            'dm_policy': normalize_dm_policy(u.get('dm_policy')),
-            'verified': has_any_checkmark(u.get('id')),
-            'badge_color': get_badge_color_for_user_id(u.get('id'))
-        }
-        for u in db['users']
-        if (not exclude_id or u['id'] != exclude_id) and u['nickname'].lower().startswith(q)
-    ]
+    matched = []
+    for u in db['users']:
+        if exclude_id and u['id'] == exclude_id:
+            continue
+        enr = enrich_user_badge(u, db=db)
+        if enr['nickname'].lower().startswith(q) or str(u.get('original_nickname') or '').lower().startswith(q):
+            matched.append({
+                'id': u['id'],
+                'nickname': enr['nickname'],
+                'avatar': enr['avatar'],
+                'dm_policy': enr['dm_policy'],
+                'banned': enr['banned'],
+                'verified': enr['verified'],
+                'badge_color': enr['badge_color']
+            })
     return jsonify({'users': matched})
 
 
@@ -3685,10 +3953,15 @@ def update_profile():
         return jsonify({'error': 'Пользователь не найден'}), 404
 
     user = users[user_index]
+    if is_user_currently_banned(db, user, user.get('id')) or user.get('permanent_ban') is True:
+        return jsonify({'error': 'Забаненный аккаунт нельзя изменять'}), 403
+
     user['avatar'] = normalize_avatar(user.get('avatar'), DEFAULT_AVATAR)
     user['dm_policy'] = normalize_dm_policy(user.get('dm_policy'))
 
     if new_avatar is not None and str(new_avatar).strip():
+        if str(new_avatar).strip() == BANNED_AVATAR:
+            return jsonify({'error': 'Недопустимая аватарка'}), 400
         if not is_image_avatar(new_avatar) and str(new_avatar).strip() not in ALLOWED_AVATARS:
             return jsonify({'error': 'Недопустимая аватарка'}), 400
         user['avatar'] = normalize_avatar(new_avatar, user['avatar'])
@@ -3699,6 +3972,8 @@ def update_profile():
         user['dm_policy'] = new_dm_policy
 
     if new_nickname and new_nickname != user['nickname']:
+        if new_nickname == BANNED_NICKNAME:
+            return jsonify({'error': 'Этот никнейм зарезервирован'}), 400
         if len(new_nickname) < 2 or len(new_nickname) > 20:
             return jsonify({'error': 'Никнейм от 2 до 20 символов'}), 400
 
@@ -3713,12 +3988,13 @@ def update_profile():
             return jsonify({'error': 'Этот никнейм уже занят!'}), 400
 
         user['nickname'] = new_nickname
+        user['original_nickname'] = new_nickname
         user['lastNickChange'] = now_ms
 
     user['verified'] = has_any_checkmark(user.get('id'))
     users[user_index] = user
     save_db(db)
-    return jsonify({'user': safe_user(user)})
+    return jsonify({'user': safe_user(user, db=db)})
 
 
 @app.route('/api/groups/create', methods=['POST'])
@@ -3741,7 +4017,7 @@ def create_group():
 
     now_ms = int(time.time() * 1000)
     db = load_db(force_refresh=True)
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     group_id = f'grp_{now_ms}'
     group_obj = {
         'id': group_id,
@@ -3770,7 +4046,7 @@ def update_group():
     group_id = (data.get('group_id') or '').strip()
     user_id = (data.get('user_id') or '').strip()
     db = load_db(force_refresh=True)
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
 
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
@@ -3799,7 +4075,7 @@ def add_group_members():
     raw_members = data.get('member_ids') if isinstance(data.get('member_ids'), list) else []
 
     db = load_db(force_refresh=True)
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
@@ -3831,7 +4107,7 @@ def group_member_action():
     action = (data.get('action') or '').strip()
 
     db = load_db(force_refresh=True)
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
@@ -3871,7 +4147,7 @@ def leave_group():
     user_id = (data.get('user_id') or '').strip()
 
     db = load_db(force_refresh=True)
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
     if not grp:
         return jsonify({'error': 'Группа не найдена'}), 404
@@ -3944,7 +4220,7 @@ def get_chats():
         return jsonify({'chats': []})
 
     db = load_db()
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     partner_ids = set()
 
     for m in db['messages']:
@@ -3972,11 +4248,12 @@ def get_chats():
         chats.append({
             'id': partner['id'],
             'nickname': partner['nickname'],
-            'avatar': normalize_avatar(partner.get('avatar'), DEFAULT_AVATAR),
-            'dm_policy': normalize_dm_policy(partner.get('dm_policy')),
-            'verified': has_any_checkmark(partner['id']),
-            'badge_color': get_badge_color_for_user_id(partner['id']),
+            'avatar': partner['avatar'],
+            'dm_policy': partner['dm_policy'],
+            'verified': partner['verified'],
+            'badge_color': partner['badge_color'],
             'isGroup': False,
+            'isAdminChat': False,
             'lastMessage': last_msg.get('text', '') if last_msg else '',
             'lastSenderId': last_msg.get('sender_id', '') if last_msg else '',
             'lastTimestamp': last_msg.get('timestamp', 0) if last_msg else 0
@@ -4000,6 +4277,7 @@ def get_chats():
             'verified': False,
             'badge_color': None,
             'isGroup': True,
+            'isAdminChat': False,
             'ownerId': ser_grp['owner_id'],
             'members': ser_grp['members'],
             'mutedMembers': ser_grp['muted_members'],
@@ -4011,6 +4289,24 @@ def get_chats():
         })
 
     chats.sort(key=lambda c: c['lastTimestamp'], reverse=True)
+
+    if is_admin_id(user_id):
+        adm_msgs = [m for m in db['messages'] if str(m.get('group_id') or '').strip() == ADMIN_CHAT_ID]
+        adm_msgs.sort(key=lambda x: x.get('timestamp', 0))
+        last_adm = adm_msgs[-1] if adm_msgs else None
+        chats.insert(0, {
+            'id': ADMIN_CHAT_ID,
+            'nickname': 'Чат Администратора',
+            'avatar': '🛡️',
+            'verified': False,
+            'badge_color': None,
+            'isGroup': False,
+            'isAdminChat': True,
+            'lastMessage': last_adm.get('text', '') if last_adm else 'Команды: /id ник, /ban id, /razban id',
+            'lastSenderId': last_adm.get('sender_id', '') if last_adm else '',
+            'lastTimestamp': last_adm.get('timestamp', 0) if last_adm else 9999999999999
+        })
+
     return jsonify({'chats': chats})
 
 
@@ -4019,9 +4315,18 @@ def get_messages():
     user_id = (request.args.get('user_id') or '').strip()
     peer_id = (request.args.get('peer_id') or '').strip()
     group_id = (request.args.get('group_id') or '').strip()
+    admin_chat = (request.args.get('admin_chat') or '').strip()
 
     db = load_db()
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
+
+    if admin_chat == '1' or group_id == ADMIN_CHAT_ID:
+        if not is_admin_id(user_id):
+            return jsonify({'error': 'Доступ запрещён'}), 403
+        a_msgs = [m for m in db['messages'] if str(m.get('group_id') or '').strip() == ADMIN_CHAT_ID]
+        a_msgs.sort(key=lambda x: x.get('timestamp', 0))
+        return jsonify({'messages': a_msgs, 'isAdminChat': True})
+
     if group_id:
         grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
         if not grp:
@@ -4049,18 +4354,46 @@ def send_message():
     sender_id = (data.get('sender_id') or '').strip()
     receiver_id = (data.get('receiver_id') or '').strip()
     group_id = (data.get('group_id') or '').strip()
+    is_admin_req = bool(data.get('admin_chat')) or group_id == ADMIN_CHAT_ID
     text = (data.get('text') or '').strip()
     reply_to = data.get('reply_to')
 
     if not sender_id or not text:
         return jsonify({'error': 'Пустое сообщение'}), 400
-    if not group_id and not receiver_id:
-        return jsonify({'error': 'Не указан получатель или группа'}), 400
     if len(text) > 1000:
         return jsonify({'error': 'Сообщение слишком длинное'}), 400
 
-    db = load_db()
-    users_by_id = {u['id']: u for u in db['users']}
+    db = load_db(force_refresh=True)
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
+
+    if is_admin_req:
+        if not is_admin_id(sender_id):
+            return jsonify({'error': 'Чат Администратора доступен только администратору'}), 403
+        now_ms = int(time.time() * 1000)
+        sender_nick = users_by_id.get(sender_id, {}).get('nickname', 'Администратор')
+        msg = {
+            'id': f'{now_ms}_{len(db["messages"]) + 1}',
+            'sender_id': sender_id,
+            'sender_nick': sender_nick,
+            'receiver_id': ADMIN_USER_ID,
+            'group_id': ADMIN_CHAT_ID,
+            'text': text,
+            'timestamp': now_ms,
+            'reply_to': None,
+            'reactions': {}
+        }
+        db['messages'].append(msg)
+        extra_msgs = []
+        if text.startswith('/'):
+            cmd_reply = process_admin_command(db, text, now_ms + 1)
+            if cmd_reply:
+                make_admin_log_message(db, cmd_reply, now_ms + 1)
+                extra_msgs.append(db['messages'][-1])
+        save_db(db)
+        return jsonify({'message': msg, 'extra_messages': extra_msgs})
+
+    if not group_id and not receiver_id:
+        return jsonify({'error': 'Не указан получатель или группа'}), 400
 
     if group_id:
         grp = next((g for g in db['groups'] if g.get('id') == group_id), None)
@@ -4115,7 +4448,7 @@ def toggle_reaction():
         return jsonify({'error': 'Некорректные данные реакции'}), 400
 
     db = load_db()
-    users_by_id = {u['id']: u for u in db['users']}
+    users_by_id = {u['id']: enrich_user_badge(u, db=db) for u in db['users']}
     nickname = (data.get('nickname') or '').strip() or (users_by_id.get(user_id, {}).get('nickname') or 'Пользователь')
 
     target_msg = next((m for m in db['messages'] if m.get('id') == msg_id), None)
@@ -4158,7 +4491,10 @@ def delete_message():
         return jsonify({'error': 'Сообщение не найдено'}), 404
 
     gid = (target_msg.get('group_id') or '').strip()
-    if gid:
+    if gid == ADMIN_CHAT_ID:
+        if not is_admin_id(user_id):
+            return jsonify({'error': 'Доступ запрещён'}), 403
+    elif gid:
         grp = next((g for g in db['groups'] if g.get('id') == gid), None)
         if not grp:
             return jsonify({'error': 'Группа не найдена'}), 404
