@@ -3,7 +3,7 @@ import json
 import time
 import threading
 import requests
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, make_response
 
 app = Flask(__name__)
 DB_FILE = 'users.json'
@@ -2569,13 +2569,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!peerObj) return;
       const directCard = document.getElementById('direct-chat-settings-card');
       const groupCard = document.getElementById('group-chat-settings-card');
+      const sceneEl = document.getElementById('chat-settings-scene');
 
       if (!peerObj.isGroup) {
         editingGroupState = null;
         directCard.style.display = 'flex';
         groupCard.style.display = 'none';
         document.getElementById('chat-scene-title').textContent = `Чат: ${peerObj.nickname}`;
-        document.getElementById('chat-settings-scene').classList.add('active');
+        sceneEl.classList.add('active');
         updateFabVisibility();
         return;
       }
@@ -2583,7 +2584,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       directCard.style.display = 'none';
       groupCard.style.display = 'flex';
       renderGroupSettingsBody(peerObj);
-      document.getElementById('chat-settings-scene').classList.add('active');
+      sceneEl.classList.add('active');
       updateFabVisibility();
 
       fetch(`/api/messages?user_id=${encodeURIComponent(currentUser?.id || '')}&group_id=${encodeURIComponent(peerObj.id)}`, { cache: 'no-store' })
@@ -3457,7 +3458,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    resp = make_response(render_template_string(HTML_TEMPLATE))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
 
 
 @app.route('/api/register', methods=['POST'])
